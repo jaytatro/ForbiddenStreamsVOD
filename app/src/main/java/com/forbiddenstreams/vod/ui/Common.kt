@@ -196,6 +196,25 @@ fun PosterCard(
 }
 
 /**
+ * Bright green ring with a soft glow, drawn just *outside* the poster's edge so the
+ * artwork never hides it.
+ */
+private fun Modifier.selectionRing(): Modifier = drawWithContent {
+    drawContent()
+    val gap = 3.dp.toPx()
+    val width = 3.5.dp.toPx()
+    val radius = 12.dp.toPx() + gap
+    val inset = gap + width / 2
+    val topLeft = androidx.compose.ui.geometry.Offset(-inset, -inset)
+    val ringSize = androidx.compose.ui.geometry.Size(size.width + inset * 2, size.height + inset * 2)
+    val corner = androidx.compose.ui.geometry.CornerRadius(radius, radius)
+    // Glow
+    drawRoundRect(Brand.GlowGreen.copy(alpha = 0.28f), topLeft, ringSize, corner, style = Stroke(width * 3.2f))
+    // Ring
+    drawRoundRect(Brand.GlowGreen, topLeft, ringSize, corner, style = Stroke(width))
+}
+
+/**
  * Tracks the remote's OK / Enter key for [PosterCard]: a press held for [LONG_PRESS_MS] or
  * more counts as a long press, and it fires only when the key is released.
  */
