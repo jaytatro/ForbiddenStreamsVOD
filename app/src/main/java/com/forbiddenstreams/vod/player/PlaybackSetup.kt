@@ -163,17 +163,20 @@ enum class DvMode(val label: String) {
     NATIVE("Dolby Vision decoder"),
 }
 
-/** Bigger buffer for high-bitrate 4K, capped by how much memory the app has. */
+/**
+ * Large read-ahead buffer: keeps loading well ahead of what's playing (up to 5 minutes),
+ * capped by how much memory the app has so 4K can't run it out of memory.
+ */
 @OptIn(UnstableApi::class)
 fun vodLoadControl(): LoadControl {
     val maxMemory = Runtime.getRuntime().maxMemory()
-    val targetBytes = (maxMemory / 4).coerceIn(32L * 1024 * 1024, 200L * 1024 * 1024).toInt()
+    val targetBytes = (maxMemory * 45 / 100).coerceIn(48L * 1024 * 1024, 400L * 1024 * 1024).toInt()
     return DefaultLoadControl.Builder()
         .setBufferDurationsMs(
-            30_000, // keep at least 30 s loaded when possible
-            90_000, // up to 90 s
-            2_500, // start playing after 2.5 s
-            6_000, // after a stall, wait for 6 s so it doesn't stutter again right away
+            60_000, // keep at least a minute loaded when memory allows
+            300_000, // up to 5 minutes ahead
+            2_000, // start playing after 2 s
+            5_000, // after a stall, wait for 5 s so it doesn't stutter again right away
         )
         .setTargetBufferBytes(targetBytes)
         .setPrioritizeTimeOverSizeThresholds(false)

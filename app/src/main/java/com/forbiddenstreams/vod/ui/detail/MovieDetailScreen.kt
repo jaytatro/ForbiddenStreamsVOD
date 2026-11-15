@@ -221,6 +221,7 @@ fun MovieDetailScreen(id: Int, onBack: () -> Unit) {
                             modifier = Modifier.focusRequester(playFocus),
                         )
                     }
+                    PreloadStatus(vm.entryFor(d, resume?.takeIf { it.positionMs > 0 }))
                 }
                 }
                 TrailersRow(

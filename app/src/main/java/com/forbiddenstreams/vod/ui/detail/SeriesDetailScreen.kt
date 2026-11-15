@@ -219,6 +219,9 @@ fun SeriesDetailScreen(id: Int, onBack: () -> Unit) {
                                 )
                             }
                         }
+                        PreloadStatus(
+                            latest ?: d.seasons.values.firstOrNull()?.firstOrNull()?.let { vm.entryFor(d, it, null) },
+                        )
                     }
                 }
                 }

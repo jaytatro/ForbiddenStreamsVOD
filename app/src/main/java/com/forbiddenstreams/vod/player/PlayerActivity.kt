@@ -30,7 +30,6 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
@@ -205,12 +204,14 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        appContainer().prefetcher.playerActive = true
         if (::entry.isInitialized) initializePlayer()
     }
 
     override fun onStop() {
         super.onStop()
         releasePlayer()
+        appContainer().prefetcher.playerActive = false
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -236,9 +237,11 @@ class PlayerActivity : ComponentActivity() {
     private fun initializePlayer() {
         if (player != null) return
 
-        // OkHttp (shared with the rest of the app) streams faster and copes better with
-        // IPTV servers than Android's basic HTTP stack.
-        val httpFactory = OkHttpDataSource.Factory(appContainer().http).setUserAgent(USER_AGENT)
+        // Background pre-loading is already stopped (playerActive): most IPTV accounts allow
+        // only one connection.
+        // Streams through OkHttp and keeps what it plays on disk, so anything pre-loaded on the
+        // movie's page plays instantly and rewinding / resuming doesn't download again.
+        val dataSourceFactory = appContainer().mediaCache.dataSourceFactory()
 
         val trackSelector = DefaultTrackSelector(this).apply {
             setParameters(
@@ -259,7 +262,7 @@ class PlayerActivity : ComponentActivity() {
         val exo = ExoPlayer.Builder(this, VodRenderersFactory(this, dvMode, pcmAudioOnly))
             .setTrackSelector(trackSelector)
             .setLoadControl(vodLoadControl())
-            .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(httpFactory))
+            .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(dataSourceFactory))
             .build()
 
         val title = listOfNotNull(entry.title, entry.subtitle).joinToString(" · ")

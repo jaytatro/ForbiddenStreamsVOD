@@ -31,6 +31,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.style.TextOverflow
 import coil.compose.AsyncImage
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import com.forbiddenstreams.vod.appContainer
 import com.forbiddenstreams.vod.ui.Brand
 
 /** Backdrop, poster, title, metadata and action buttons shared by the movie and series screens. */
@@ -129,4 +132,33 @@ fun DetailHeader(
             }
         }
     }
+}
+
+/**
+ * Loads the start of [entry]'s video in the background while this page is open (stopped when
+ * leaving, or when playback starts), and shows a small status line.
+ */
+@Composable
+fun PreloadStatus(entry: com.forbiddenstreams.vod.data.ResumeEntry?) {
+    val container = LocalContext.current.appContainer()
+    val repo = container.repository
+    val url = remember(entry?.key, entry?.extension) { entry?.let { repo?.streamUrl(it) } }
+    val resuming = (entry?.positionMs ?: 0L) > 0L
+    if (url != null) {
+        androidx.compose.runtime.DisposableEffect(url, resuming) {
+            container.prefetcher.prefetch(
+                url,
+                if (resuming) com.forbiddenstreams.vod.player.Prefetcher.HEADER_BYTES
+                else com.forbiddenstreams.vod.player.Prefetcher.START_BYTES,
+            )
+            onDispose { container.prefetcher.cancel(url) }
+        }
+    }
+    val state = container.prefetcher.state?.takeIf { it.url == url } ?: return
+    Text(
+        if (state.done) "✓ Ready to play" else "Pre-loading… ${(state.progress * 100).toInt()}%",
+        style = MaterialTheme.typography.labelLarge,
+        color = if (state.done) Brand.GlowGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 12.dp, start = 4.dp),
+    )
 }

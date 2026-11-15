@@ -309,6 +309,32 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
                 }
             }
 
+            Section("Video cache") {
+                var used by remember { mutableStateOf<Long?>(null) }
+                LaunchedEffect(Unit) {
+                    used = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { container.mediaCache.usedBytes() }
+                }
+                Text(
+                    "Videos are loaded ahead and kept on this device, so they start fast and rewinding or " +
+                        "resuming doesn't download them again. Old videos are removed automatically.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "Using ${used?.let { "%.1f GB".format(it / 1_073_741_824.0) } ?: "…"}",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { container.mediaCache.clear() }
+                            used = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { container.mediaCache.usedBytes() }
+                        }
+                    },
+                    modifier = Modifier.focusHighlight(CircleShape),
+                ) { Text("Clear video cache") }
+            }
+
             Section("Parental controls") {
                 val enabled by vm.parentalEnabled.collectAsState(initial = false)
                 Text(

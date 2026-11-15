@@ -10,6 +10,8 @@ import com.forbiddenstreams.vod.data.LocalStore
 import com.forbiddenstreams.vod.data.UpdateInfo
 import com.forbiddenstreams.vod.data.TrailerFinder
 import com.forbiddenstreams.vod.data.UpdateManager
+import com.forbiddenstreams.vod.player.MediaCache
+import com.forbiddenstreams.vod.player.Prefetcher
 import com.forbiddenstreams.vod.data.XtreamClient
 import com.forbiddenstreams.vod.data.XtreamRepository
 import kotlinx.coroutines.CoroutineScope
@@ -74,6 +76,10 @@ class AppContainer(context: Context) {
     val updates = UpdateManager(context, http)
 
     val trailers = TrailerFinder(http)
+
+    /** Disk cache for video, and the "pre-load before Play" helper. */
+    val mediaCache = MediaCache(context.applicationContext, http)
+    val prefetcher by lazy { Prefetcher(mediaCache, appScope) }
 
     /** Set by the background check on the home screen; shows a badge on the Settings button. */
     var availableUpdate by mutableStateOf<UpdateInfo?>(null)
