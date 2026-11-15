@@ -5,13 +5,16 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
@@ -22,8 +25,23 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
+          cp app/build/outputs/apk/debug/app-debug.apk ForbiddenStreamsVOD.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: ForbiddenStreamsVOD-debug
-          path: app/build/outputs/apk/debug/*.apk
+          path: ForbiddenStreamsVOD.apk
+
+      # Every push to main replaces the "latest" release, so this link always has the newest APK:
+      # https://github.com/<owner>/<repo>/releases/latest/download/ForbiddenStreamsVOD.apk
+      - name: Publish to Releases
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest ForbiddenStreamsVOD.apk \
+            --target "$GITHUB_SHA" \
+            --title "Forbidden Streams VOD (build ${{ github.run_number }})" \
+            --notes "Built from ${GITHUB_SHA::7}. Install ForbiddenStreamsVOD.apk on Android TV or Android." \
+            --latest
