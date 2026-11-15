@@ -66,7 +66,11 @@ import com.forbiddenstreams.vod.ui.Load
 import com.forbiddenstreams.vod.ui.LoadingBox
 import com.forbiddenstreams.vod.ui.MessageBox
 import com.forbiddenstreams.vod.ui.Playback
+import com.forbiddenstreams.vod.ui.GatedScrolling
 import com.forbiddenstreams.vod.ui.WhiteButton
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.focus.onFocusChanged
 import com.forbiddenstreams.vod.ui.focusHighlight
 import com.forbiddenstreams.vod.ui.formatDuration
 import com.forbiddenstreams.vod.ui.loadCatching
@@ -168,11 +172,26 @@ fun SeriesDetailScreen(id: Int, onBack: () -> Unit) {
                 ratingBadge(s.rating),
             ).joinToString("  •  ")
 
+            // The page stays put while you're on Play; it scrolls only once you go down to the
+            // seasons / episodes, and returns to the top when you come back up.
+            val listState = rememberLazyListState()
+            val scope = rememberCoroutineScope()
+            var headerFocused by remember { mutableStateOf(true) }
+            GatedScrolling(enabled = { !headerFocused }) {
             LazyColumn(
+                state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 24.dp),
             ) {
                 item {
+                    Box(
+                        Modifier.onFocusChanged {
+                            headerFocused = it.hasFocus
+                            if (it.hasFocus && (listState.firstVisibleItemIndex != 0 || listState.firstVisibleItemScrollOffset != 0)) {
+                                scope.launch { listState.animateScrollToItem(0) }
+                            }
+                        },
+                    ) {
                     DetailHeader(
                         title = s.name,
                         backdrop = s.backdrop,
@@ -201,6 +220,7 @@ fun SeriesDetailScreen(id: Int, onBack: () -> Unit) {
                             }
                         }
                     }
+                }
                 }
 
                 if (d.seasons.isEmpty()) {
@@ -232,6 +252,7 @@ fun SeriesDetailScreen(id: Int, onBack: () -> Unit) {
                     }
                 }
                 item { Spacer(Modifier.navigationBarsPadding()) }
+            }
             }
         }
     }

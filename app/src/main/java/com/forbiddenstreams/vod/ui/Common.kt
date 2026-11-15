@@ -34,6 +34,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -96,7 +97,7 @@ fun PosterCard(
     onClick: () -> Unit,
 ) {
     val shape = MaterialTheme.shapes.medium
-    // Holding OK on the remote = long press, acted on when OK is let go.
+    // Holding OK on the remote = long press, which fires as soon as the hold registers.
     val keyState = remember { LongPressKeyState() }
     val touchLongClick: (() -> Unit)? = onLongClick?.let { long -> { if (!keyState.keyHeld) long() } }
     val click: () -> Unit = { if (!keyState.consumeSuppressedClick()) onClick() }
@@ -109,15 +110,9 @@ fun PosterCard(
         modifier = modifier
             .onFocusChanged {
                 focused = it.hasFocus
-                if (it.hasFocus) onFocused?.invoke()
+                if (it.hasFocus) onFocused?.invoke() else keyState.reset()
             }
-            .then(
-                if (onLongClick != null) {
-                    Modifier.onPreviewKeyEvent { event -> keyState.handle(event, onLongClick) }
-                } else {
-                    Modifier
-                },
-            )
+            .onPreviewKeyEvent { event -> keyState.handle(event, onLongClick) }
             // No ripple: on a TV the green ring is the selection indicator.
             .combinedClickable(
                 interactionSource = interaction,
@@ -215,14 +210,21 @@ private fun Modifier.selectionRing(): Modifier = drawWithContent {
 }
 
 /**
- * Tracks the remote's OK / Enter key for [PosterCard]: a press held for [LONG_PRESS_MS] or
- * more counts as a long press, and it fires only when the key is released.
+ * Tracks the remote's OK / Enter key for [PosterCard]: once OK has been held for
+ * [LONG_PRESS_MS] the long press fires right away (while still held), and letting go
+ * afterwards does nothing.
  */
 private class LongPressKeyState {
     /** True while OK is down on this poster (touch long-press is ignored then). */
     var keyHeld = false
         private set
+    private var fired = false
     private var suppressClickUntil = 0L
+
+    fun reset() {
+        keyHeld = false
+        fired = false
+    }
 
     /** True (once) if the click that follows a long press should be ignored. */
     fun consumeSuppressedClick(): Boolean {
@@ -231,7 +233,7 @@ private class LongPressKeyState {
         return suppress
     }
 
-    fun handle(event: KeyEvent, onLong: () -> Unit): Boolean {
+    fun handle(event: KeyEvent, onLong: (() -> Unit)?): Boolean {
         val native = event.nativeKeyEvent
         val isOk = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
             native.keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
@@ -239,18 +241,34 @@ private class LongPressKeyState {
         if (!isOk) return false
         return when (event.type) {
             KeyEventType.KeyDown -> {
-                keyHeld = true
-                // Let the first key-down through (press feedback); swallow auto-repeats.
-                native.repeatCount > 0
+                if (native.repeatCount == 0) {
+                    keyHeld = true
+                    fired = false
+                    suppressClickUntil = 0L // a fresh press is always a real click
+                    false // let the normal press handling start
+                } else {
+                    // Auto-repeats while held: fire once the hold is long enough.
+                    if (onLong != null && keyHeld && !fired && native.eventTime - native.downTime >= LONG_PRESS_MS) {
+                        fired = true
+                        suppressClickUntil = SystemClock.uptimeMillis() + 5_000
+                        onLong()
+                    }
+                    true
+                }
             }
             KeyEventType.KeyUp -> {
+                val pressedHere = keyHeld
                 keyHeld = false
-                if (native.eventTime - native.downTime >= LONG_PRESS_MS) {
-                    // Skip the click this key-up would trigger, then act on the long press.
-                    suppressClickUntil = SystemClock.uptimeMillis() + 1_000
-                    onLong()
+                when {
+                    // A key-up for a press that started elsewhere (e.g. the hold that just
+                    // opened this screen): ignore it so it can't open a title.
+                    !pressedHere -> true
+                    fired -> {
+                        fired = false
+                        false // the click this would trigger is suppressed
+                    }
+                    else -> false
                 }
-                false // let the click handling finish its press state normally
             }
             else -> false
         }
@@ -324,8 +342,8 @@ fun formatDuration(seconds: Int?): String? {
 fun yearOf(date: String?): String? = date?.trim()?.take(4)?.takeIf { it.length == 4 && it.all(Char::isDigit) }
 
 /**
- * Main action button on detail pages: white with black text; a green ring shows when the
- * remote has it selected.
+ * Main action button on detail pages: white with black text, turning green with a ring
+ * when the remote has it selected.
  */
 @Composable
 fun WhiteButton(
@@ -334,11 +352,18 @@ fun WhiteButton(
     modifier: Modifier = Modifier,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
+    val container by androidx.compose.animation.animateColorAsState(
+        if (focused) Brand.GlowGreen else Color.White,
+        label = "playButton",
+    )
     androidx.compose.material3.Button(
         onClick = onClick,
+        interactionSource = interaction,
         shape = RoundedCornerShape(10.dp),
         colors = androidx.compose.material3.ButtonDefaults.buttonColors(
-            containerColor = Color.White,
+            containerColor = container,
             contentColor = Color.Black,
         ),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 26.dp, vertical = 12.dp),

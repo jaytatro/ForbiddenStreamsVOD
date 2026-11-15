@@ -21,7 +21,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import coil.compose.AsyncImage
 import com.forbiddenstreams.vod.data.Trailer
 import com.forbiddenstreams.vod.player.TrailerActivity
+import com.forbiddenstreams.vod.ui.GatedScrolling
+import com.forbiddenstreams.vod.ui.PivotScrolling
 import com.forbiddenstreams.vod.ui.WhiteButton
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -171,12 +175,23 @@ fun MovieDetailScreen(id: Int, onBack: () -> Unit) {
                 ratingBadge(d.movie.rating),
             ).joinToString("  •  ")
 
+            // The page stays put while you're on Play; it scrolls only once you go down to
+            // the trailers, and jumps back to the top when you return to the buttons.
+            val scroll = rememberScrollState()
+            val scope = rememberCoroutineScope()
+            var trailersFocused by remember { mutableStateOf(false) }
+            GatedScrolling(enabled = { trailersFocused }) {
             Column(
                 Modifier
                     .fillMaxSize()
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(scroll)
                     .navigationBarsPadding(),
             ) {
+                Box(
+                    Modifier.onFocusChanged {
+                        if (it.hasFocus && scroll.value != 0) scope.launch { scroll.animateScrollTo(0) }
+                    },
+                ) {
                 DetailHeader(
                     title = d.movie.name,
                     backdrop = d.backdrop,
@@ -207,17 +222,22 @@ fun MovieDetailScreen(id: Int, onBack: () -> Unit) {
                         )
                     }
                 }
-                TrailersRow(vm.trailers)
+                }
+                TrailersRow(
+                    vm.trailers,
+                    Modifier.onFocusChanged { trailersFocused = it.hasFocus },
+                )
                 Spacer(Modifier.height(24.dp))
+            }
             }
         }
     }
 }
 
 @Composable
-private fun TrailersRow(state: Load<List<Trailer>>) {
+private fun TrailersRow(state: Load<List<Trailer>>, modifier: Modifier = Modifier) {
     val context = LocalContext.current
-    Column(Modifier.padding(top = 8.dp)) {
+    Column(modifier.padding(top = 8.dp)) {
         Text(
             "Trailers",
             style = MaterialTheme.typography.titleLarge,
@@ -243,6 +263,7 @@ private fun TrailersRow(state: Load<List<Trailer>>) {
                 )
             } else {
                 val ids = state.value.map { it.videoId }
+                PivotScrolling(pivot = 24.dp) {
                 LazyRow(
                     contentPadding = PaddingValues(horizontal = 24.dp, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -252,6 +273,7 @@ private fun TrailersRow(state: Load<List<Trailer>>) {
                             context.startActivity(TrailerActivity.intent(context, ids, index))
                         }
                     }
+                }
                 }
             }
         }

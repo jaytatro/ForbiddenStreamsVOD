@@ -253,7 +253,7 @@ fun BrowseScreen(
                         // The art runs up behind the transparent top bar.
                         InfoPanel(
                             data = vm.shownInfo,
-                            placeholder = "Hold OK on a poster to see its whole category.",
+                            placeholder = "Hold OK on a poster to expand its row.",
                             topInset = HeaderHeight,
                             modifier = Modifier.weight(1f),
                         )
@@ -359,7 +359,16 @@ private fun CatalogRows(
                     val takesFirstFocus = keepWatching.isEmpty() && rowIndex == 0
                     item(key = "row_$rowIndex") {
                         Column {
-                            RowTitle(row.name)
+                            Row(verticalAlignment = Alignment.Bottom) {
+                                RowTitle(row.name, Modifier.weight(1f, fill = false))
+                                Text(
+                                    "Hold OK To Expand Row",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    modifier = Modifier.padding(end = SidePadding, bottom = 4.dp),
+                                )
+                            }
                             PivotScrolling(pivot = SidePadding) {
                                 LazyRow(
                                     state = rowStates.getOrPut(row.id) { LazyListState() },
