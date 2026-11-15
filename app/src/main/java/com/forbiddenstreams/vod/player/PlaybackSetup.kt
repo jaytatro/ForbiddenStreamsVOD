@@ -34,7 +34,7 @@ import androidx.media3.exoplayer.video.VideoRendererEventListener
 @OptIn(UnstableApi::class)
 class VodRenderersFactory(
     context: Context,
-    private val forceHdr10: Boolean,
+    private val dvMode: DvMode,
     private val pcmAudioOnly: Boolean,
 ) : DefaultRenderersFactory(context) {
     init {
@@ -75,7 +75,7 @@ class VodRenderersFactory(
                 decoderFallback = enableDecoderFallback,
                 handler = eventHandler,
                 listener = eventListener,
-                forceHdr10 = forceHdr10,
+                dvMode = dvMode,
             ),
         )
     }
@@ -89,7 +89,7 @@ private class DolbyVisionFallbackRenderer(
     decoderFallback: Boolean,
     handler: Handler,
     listener: VideoRendererEventListener,
-    private val forceHdr10: Boolean,
+    private val dvMode: DvMode,
 ) : MediaCodecVideoRenderer(context, selector, joiningTimeMs, decoderFallback, handler, listener, 50) {
 
     override fun getDecoderInfos(
@@ -132,7 +132,11 @@ private class DolbyVisionFallbackRenderer(
     }
 
     private fun useHevcFor(selector: MediaCodecSelector, format: Format, secure: Boolean): Boolean {
-        if (forceHdr10) return true
+        if (dvMode == DvMode.HDR10) return true
+        if (dvMode == DvMode.NATIVE) {
+            // Use the device's Dolby Vision decoder whenever it has one.
+            return selector.getDecoderInfos(MimeTypes.VIDEO_DOLBY_VISION, secure, false).isEmpty()
+        }
         val profile = MediaCodecUtil.getCodecProfileAndLevel(format)?.first
         // Dual-layer profiles (4, 6, 7): the base layer is plain HEVC/HDR10.
         if (profile == CodecProfileLevel.DolbyVisionProfileDvheDtr ||
@@ -145,6 +149,18 @@ private class DolbyVisionFallbackRenderer(
         val dv = selector.getDecoderInfos(MimeTypes.VIDEO_DOLBY_VISION, secure, false)
         return dv.none { it.isFormatSupported(format) }
     }
+}
+
+/** How Dolby Vision video is decoded. The player moves through these if one gets stuck. */
+enum class DvMode(val label: String) {
+    /** Device's Dolby Vision decoder when it can handle the file, otherwise HDR10. */
+    AUTO("auto"),
+
+    /** Always decode the HDR10 picture with the HEVC decoder. */
+    HDR10("HDR10"),
+
+    /** Always use the device's own Dolby Vision decoder (if it has one). */
+    NATIVE("Dolby Vision decoder"),
 }
 
 /** Bigger buffer for high-bitrate 4K, capped by how much memory the app has. */

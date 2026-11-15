@@ -76,6 +76,14 @@ class LocalStore(context: Context) {
         dataStore.edit { it[forceHdr10Key] = value }
     }
 
+    private val matchFrameRateKey = booleanPreferencesKey("match_frame_rate")
+
+    val matchFrameRate: Flow<Boolean> = dataStore.data.map { it[matchFrameRateKey] ?: true }
+
+    suspend fun setMatchFrameRate(value: Boolean) {
+        dataStore.edit { it[matchFrameRateKey] = value }
+    }
+
     // ---- Catalog sizes (for the download percentage) ----
 
     private fun catalogSizeKey(accountId: String, kind: String) = intPreferencesKey("catalog_size_${accountId}_$kind")

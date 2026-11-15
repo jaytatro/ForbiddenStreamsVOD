@@ -30,7 +30,8 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -72,8 +73,12 @@ class PlayerActivity : ComponentActivity() {
         /** Position moving but no new video frames for this long = picture frozen. */
         private const val PICTURE_FROZEN_MS = 5_000L
 
-        /** Buffering without progress for this long = connection stalled. */
-        private const val BUFFERING_STALL_MS = 30_000L
+        /** No new data arriving for this long while buffering = connection stalled. */
+        private const val NO_DATA_STALL_MS = 25_000L
+
+        /** "Buffering" with this much video already loaded = the decoder is stuck, not the network. */
+        private const val LOADED_BUT_STUCK_AHEAD_MS = 8_000L
+        private const val LOADED_BUT_STUCK_MS = 10_000L
 
         private const val GREEN = 0xFF90E15D.toInt()
 
@@ -99,8 +104,14 @@ class PlayerActivity : ComponentActivity() {
     private var ended = false
     private var failedDialogShown = false
 
-    /** Play Dolby Vision as HDR10 (setting, or switched on automatically after trouble). */
-    private var forceHdr10 = false
+    /**
+     * Ways to decode Dolby Vision, tried in order if one gets stuck. The setting
+     * "Always play Dolby Vision as HDR10" starts with HDR10.
+     */
+    private var dvModes = listOf(DvMode.AUTO, DvMode.HDR10, DvMode.NATIVE)
+    private var dvModeIndex = 0
+    private val dvMode get() = dvModes[dvModeIndex]
+    private fun hasNextDvMode() = dvModeIndex < dvModes.lastIndex
 
     /** Decode surround audio in the app instead of passing it through (after trouble). */
     private var pcmAudioOnly = false
@@ -117,6 +128,10 @@ class PlayerActivity : ComponentActivity() {
     private var lastFrames = -1
     private var lastFrameChange = 0L
     private var bufferingSince = 0L
+    private var lastBuffered = -1L
+    private var lastBufferedChange = 0L
+    private var bandwidthBps = 0L
+    private var displayModeSwitched = false
 
     private val handler = Handler(Looper.getMainLooper())
     private val saveTicker = object : Runnable {
@@ -147,7 +162,7 @@ class PlayerActivity : ComponentActivity() {
         accountId = intent.getStringExtra(EXTRA_ACCOUNT_ID).orEmpty()
         resumePositionMs = savedInstanceState?.getLong(EXTRA_START_MS)
             ?: intent.getLongExtra(EXTRA_START_MS, 0L)
-        forceHdr10 = appContainer().forceHdr10
+        if (appContainer().forceHdr10) dvModes = listOf(DvMode.HDR10, DvMode.NATIVE)
 
         playerView = PlayerView(this).apply {
             keepScreenOn = true
@@ -221,11 +236,9 @@ class PlayerActivity : ComponentActivity() {
     private fun initializePlayer() {
         if (player != null) return
 
-        val httpFactory = DefaultHttpDataSource.Factory()
-            .setUserAgent(USER_AGENT)
-            .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(30_000)
+        // OkHttp (shared with the rest of the app) streams faster and copes better with
+        // IPTV servers than Android's basic HTTP stack.
+        val httpFactory = OkHttpDataSource.Factory(appContainer().http).setUserAgent(USER_AGENT)
 
         val trackSelector = DefaultTrackSelector(this).apply {
             setParameters(
@@ -243,7 +256,7 @@ class PlayerActivity : ComponentActivity() {
                     ),
             )
         }
-        val exo = ExoPlayer.Builder(this, VodRenderersFactory(this, forceHdr10, pcmAudioOnly))
+        val exo = ExoPlayer.Builder(this, VodRenderersFactory(this, dvMode, pcmAudioOnly))
             .setTrackSelector(trackSelector)
             .setLoadControl(vodLoadControl())
             .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(httpFactory))
@@ -269,9 +282,9 @@ class PlayerActivity : ComponentActivity() {
                 lastIssue = "${error.errorCodeName}: ${error.cause?.message ?: error.message}"
                 val code = error.errorCode
                 when {
-                    PlaybackErrors.isDecoderError(code) && !forceHdr10 -> {
-                        forceHdr10 = true
-                        restart("Switching to HDR10 for this video…")
+                    PlaybackErrors.isDecoderError(code) && hasNextDvMode() -> {
+                        dvModeIndex++
+                        restart("Trying another way to decode this video (${dvMode.label})…")
                     }
                     PlaybackErrors.isAudioError(code) && !pcmAudioOnly -> {
                         pcmAudioOnly = true
@@ -293,6 +306,23 @@ class PlayerActivity : ComponentActivity() {
                 initializationDurationMs: Long,
             ) {
                 videoDecoder = decoderName
+            }
+
+            override fun onBandwidthEstimate(
+                eventTime: AnalyticsListener.EventTime,
+                totalLoadTimeMs: Int,
+                totalBytesLoaded: Long,
+                bitrateEstimate: Long,
+            ) {
+                bandwidthBps = bitrateEstimate
+            }
+
+            override fun onVideoInputFormatChanged(
+                eventTime: AnalyticsListener.EventTime,
+                format: Format,
+                decoderReuseEvaluation: DecoderReuseEvaluation?,
+            ) {
+                matchDisplayMode(format)
             }
 
             override fun onAudioDecoderInitialized(
@@ -327,8 +357,8 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun releasePlayer() {
-        handler.removeCallbacks(saveTicker)
-        handler.removeCallbacks(watchdog)
+        handler.removeCallbacksAndMessages(null)
+        displayModeSwitched = false
         val exo = player ?: return
         savePosition()
         resumePositionMs = exo.currentPosition
@@ -349,11 +379,16 @@ class PlayerActivity : ComponentActivity() {
         lastFrames = -1
         lastFrameChange = now
         bufferingSince = 0L
+        lastBuffered = -1L
+        lastBufferedChange = now
     }
 
     /**
-     * Catches the freezes that don't raise an error (common with 4K Dolby Vision on TV
-     * boxes) and recovers: audio mode first, then HDR10, then explains what happened.
+     * Catches the stalls that don't raise an error and adapts:
+     * - loading but no data arriving -> reconnect;
+     * - plenty of video loaded but still "buffering", or the picture/time frozen -> the
+     *   decoder is stuck: try the next Dolby Vision decoding mode, then in-app audio;
+     * - if nothing works, explain and show the playback details.
      */
     private fun checkForStall() {
         val exo = player ?: return
@@ -362,6 +397,11 @@ class PlayerActivity : ComponentActivity() {
         if (position != lastPosition) {
             lastPosition = position
             lastPositionChange = now
+        }
+        val buffered = exo.bufferedPosition
+        if (buffered != lastBuffered) {
+            lastBuffered = buffered
+            lastBufferedChange = now
         }
         val counters = exo.videoDecoderCounters
         counters?.ensureUpdated()
@@ -373,52 +413,86 @@ class PlayerActivity : ComponentActivity() {
 
         if (exo.playbackState == Player.STATE_BUFFERING && exo.playWhenReady) {
             if (bufferingSince == 0L) bufferingSince = now
-            if (now - bufferingSince > BUFFERING_STALL_MS) {
-                lastIssue = "Stuck buffering for ${BUFFERING_STALL_MS / 1000}s"
-                if (reconnects < 3) {
-                    reconnects++
-                    restart("Still loading, reconnecting…")
-                } else {
-                    showFailure("Your provider isn't sending this video fast enough.")
+            val ahead = buffered - position
+            when {
+                ahead >= LOADED_BUT_STUCK_AHEAD_MS && now - bufferingSince > LOADED_BUT_STUCK_MS ->
+                    decoderStuck("Video loaded (${ahead / 1000}s ahead) but not playing")
+                now - lastBufferedChange > NO_DATA_STALL_MS -> {
+                    lastIssue = "No data from the provider for ${NO_DATA_STALL_MS / 1000}s"
+                    if (reconnects < 3) {
+                        reconnects++
+                        restart("No data from your provider, reconnecting…")
+                    } else {
+                        showFailure("Your provider stopped sending this video.")
+                    }
                 }
             }
             return
         }
         bufferingSince = 0L
-        if (exo.playbackState != Player.STATE_READY || !exo.playWhenReady) {
-            // Paused or not started: nothing to watch.
+        if (exo.playbackState != Player.STATE_READY || !exo.playWhenReady || displayModeSwitched) {
+            // Paused, not started, or the TV is switching frame rate: nothing to watch.
             lastPositionChange = now
             lastFrameChange = now
             return
         }
 
-        val positionFrozen = now - lastPositionChange > FROZEN_MS
-        val pictureFrozen = !positionFrozen && exo.videoFormat != null && frames >= 0 &&
-            now - lastFrameChange > PICTURE_FROZEN_MS
         when {
-            positionFrozen -> {
-                lastIssue = "Playback froze (position not moving)"
-                when {
-                    !pcmAudioOnly -> {
-                        pcmAudioOnly = true
-                        restart("Playback froze, switching audio mode…")
-                    }
-                    !forceHdr10 && isDolbyVision(exo.videoFormat) -> {
-                        forceHdr10 = true
-                        restart("Playback froze, switching to HDR10…")
-                    }
-                    else -> showFailure("This video keeps freezing on this device.")
-                }
+            now - lastPositionChange > FROZEN_MS -> decoderStuck("Playback froze (time not moving)")
+            exo.videoFormat != null && frames >= 0 && now - lastFrameChange > PICTURE_FROZEN_MS ->
+                decoderStuck("Picture froze (no new video frames)")
+        }
+    }
+
+    /** Move to the next way of decoding, or give up with details. */
+    private fun decoderStuck(issue: String) {
+        lastIssue = "$issue  [decoder ${videoDecoder ?: "-"}, mode ${dvMode.label}]"
+        val exo = player ?: return
+        when {
+            isDolbyVision(exo.videoFormat) && hasNextDvMode() -> {
+                dvModeIndex++
+                restart("Video stuck, trying another way to decode it (${dvMode.label})…")
             }
-            pictureFrozen -> {
-                lastIssue = "Picture froze (no new video frames)"
-                if (!forceHdr10) {
-                    forceHdr10 = true
-                    restart("Picture froze, switching to HDR10…")
-                } else {
-                    showFailure("The picture keeps freezing on this device.")
-                }
+            !pcmAudioOnly -> {
+                pcmAudioOnly = true
+                restart("Video stuck, switching audio mode…")
             }
+            else -> showFailure("This video won't play on this device.")
+        }
+    }
+
+    // ---- Match the TV's refresh rate to the video ---------------------------------------------
+
+    /**
+     * Switches the TV to a refresh rate that fits the video's frame rate (e.g. 23.976 Hz for
+     * films), like Kodi's "adjust display refresh rate". Keeps the current resolution.
+     */
+    private fun matchDisplayMode(format: Format) {
+        if (!appContainer().matchFrameRate) return
+        val fps = format.frameRate
+        if (fps <= 0f) return
+        @Suppress("DEPRECATION")
+        val display = (if (Build.VERSION.SDK_INT >= 30) display else windowManager.defaultDisplay) ?: return
+        val current = display.mode
+        val candidates = display.supportedModes.filter {
+            it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight
+        }
+        // Best: refresh rate equal to the frame rate, then 2x, 3x... (e.g. 25 fps -> 50 Hz).
+        val best = (1..5).firstNotNullOfOrNull { multiple ->
+            candidates.firstOrNull { kotlin.math.abs(it.refreshRate - fps * multiple) < 0.05f }
+        } ?: return
+        if (best.modeId == current.modeId) return
+        window.attributes = window.attributes.also { it.preferredDisplayModeId = best.modeId }
+        // Most TVs blank for a moment while switching; pause so nothing is missed.
+        val exo = player ?: return
+        if (exo.playWhenReady) {
+            displayModeSwitched = true
+            exo.playWhenReady = false
+            handler.postDelayed({
+                displayModeSwitched = false
+                resetWatchdog()
+                player?.playWhenReady = true
+            }, 2_500)
         }
     }
 
@@ -457,11 +531,28 @@ class PlayerActivity : ComponentActivity() {
             appendLine("Frames  shown ${counters?.renderedOutputBufferCount ?: 0}  dropped ${counters?.droppedBufferCount ?: 0}")
             appendLine("Audio   ${a?.sampleMimeType ?: "-"}  ${a?.channelCount ?: 0}ch  ${a?.sampleRate ?: 0}Hz")
             appendLine("        ${audioDecoder ?: "passthrough / none"}")
-            appendLine("Buffer  ${buffered?.let { "%.1f s ahead".format(it) } ?: "-"}")
-            appendLine("Mode    DV as HDR10: ${if (forceHdr10) "on" else "auto"}   in-app audio: ${if (pcmAudioOnly) "on" else "auto"}")
+            appendLine("Buffer  ${buffered?.let { "%.1f s ahead".format(it) } ?: "-"}   state ${stateName(exo?.playbackState)}")
+            appendLine("Network ${if (bandwidthBps > 0) "%.1f Mbps".format(bandwidthBps / 1_000_000.0) else "measuring…"}   video bitrate ${v?.bitrate?.takeIf { it > 0 }?.let { "%.1f Mbps".format(it / 1_000_000.0) } ?: "unknown"}")
+            appendLine("Display ${currentDisplayMode()}")
+            appendLine("Mode    Dolby Vision: ${dvMode.label}   in-app audio: ${if (pcmAudioOnly) "on" else "auto"}")
             appendLine("Device  ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}")
             lastIssue?.let { append("Issue   ").append(it) }
         }
+    }
+
+    private fun stateName(state: Int?) = when (state) {
+        Player.STATE_IDLE -> "idle"
+        Player.STATE_BUFFERING -> "buffering"
+        Player.STATE_READY -> "playing/ready"
+        Player.STATE_ENDED -> "ended"
+        else -> "-"
+    }
+
+    private fun currentDisplayMode(): String {
+        @Suppress("DEPRECATION")
+        val display = (if (Build.VERSION.SDK_INT >= 30) display else windowManager.defaultDisplay) ?: return "-"
+        val m = display.mode
+        return "${m.physicalWidth}x${m.physicalHeight} @ ${"%.3f".format(m.refreshRate)} Hz"
     }
 
     /** Last resort: stop, and show what happened so it can be reported. */

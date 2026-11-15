@@ -245,8 +245,8 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
             Section("Playback") {
                 val forceHdr10 by container.store.forceHdr10.collectAsState(initial = container.forceHdr10)
                 Text(
-                    "4K Dolby Vision movies that your device can't handle are played as HDR10 automatically. " +
-                        "If Dolby Vision movies still freeze or stop, turn this on to always play them as HDR10.",
+                    "The player adapts to each video: if a 4K Dolby Vision movie gets stuck, it automatically " +
+                        "tries another way to decode it. Turn this on to always start Dolby Vision as HDR10.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -272,6 +272,37 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
                     Spacer(Modifier.width(16.dp))
                     Switch(
                         checked = forceHdr10,
+                        onCheckedChange = null,
+                        colors = SwitchDefaults.colors(checkedTrackColor = Brand.ToxicGreen),
+                    )
+                }
+
+                val matchFrameRate by container.store.matchFrameRate.collectAsState(initial = container.matchFrameRate)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .focusHighlight(RoundedCornerShape(12.dp))
+                        .toggleable(
+                            value = matchFrameRate,
+                            role = Role.Switch,
+                            onValueChange = { on ->
+                                container.matchFrameRate = on
+                                scope.launch { container.store.setMatchFrameRate(on) }
+                            },
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Column(Modifier.weight(1f, fill = false)) {
+                        Text("Match the TV's frame rate to the video", style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            "Smoother motion: films switch the TV to 23.976 Hz, etc.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Switch(
+                        checked = matchFrameRate,
                         onCheckedChange = null,
                         colors = SwitchDefaults.colors(checkedTrackColor = Brand.ToxicGreen),
                     )

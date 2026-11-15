@@ -36,6 +36,7 @@ class VodApp : Application() {
         // process death) can rely on the account being known.
         runBlocking { container.store.account.first() }?.let(container::activate)
         container.forceHdr10 = runBlocking { container.store.forceHdr10.first() }
+        container.matchFrameRate = runBlocking { container.store.matchFrameRate.first() }
     }
 }
 
@@ -80,6 +81,9 @@ class AppContainer(context: Context) {
 
     /** Settings > Playback: always play Dolby Vision as HDR10. */
     var forceHdr10 = false
+
+    /** Settings > Playback: switch the TV to the video's frame rate. */
+    var matchFrameRate = true
 
     /** For work that must finish even if the screen that started it closes (e.g. saving progress). */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
