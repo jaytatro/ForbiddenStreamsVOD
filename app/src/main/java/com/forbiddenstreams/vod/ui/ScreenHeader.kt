@@ -17,6 +17,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -26,6 +29,8 @@ fun ScreenHeader(
     title: String,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    backFocusRequester: FocusRequester? = null,
+    onBackFocusChanged: ((Boolean) -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
@@ -35,7 +40,13 @@ fun ScreenHeader(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        IconButton(onClick = onBack, modifier = Modifier.focusHighlight(CircleShape)) {
+        IconButton(
+            onClick = onBack,
+            modifier = Modifier
+                .then(if (backFocusRequester != null) Modifier.focusRequester(backFocusRequester) else Modifier)
+                .onFocusChanged { onBackFocusChanged?.invoke(it.isFocused) }
+                .focusHighlight(CircleShape),
+        ) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
         }
         Spacer(Modifier.width(4.dp))

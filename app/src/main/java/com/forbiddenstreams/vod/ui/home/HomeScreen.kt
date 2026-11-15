@@ -51,6 +51,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -233,6 +235,11 @@ fun BrowseScreen(
     val keepWatching by vm.keepWatching.collectAsState(initial = emptyList())
     var dialogEntry by remember { mutableStateOf<ResumeEntry?>(null) }
 
+    // Back once: jump up to the back arrow. Back again (on the arrow): leave the screen.
+    val backFocus = remember { FocusRequester() }
+    var backArrowFocused by remember { mutableStateOf(false) }
+    BackHandler(enabled = !backArrowFocused) { runCatching { backFocus.requestFocus() } }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -276,6 +283,8 @@ fun BrowseScreen(
         ScreenHeader(
             if (kind == MediaKind.MOVIE) "Movies" else "TV Series",
             onBack = onBack,
+            backFocusRequester = backFocus,
+            onBackFocusChanged = { backArrowFocused = it },
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .statusBarsPadding(),
@@ -394,10 +403,15 @@ private fun CatalogRows(
     }
 }
 
-/** A whole category as a full-screen poster grid. Back (or holding OK again) closes it. */
+/**
+ * A whole category as a full-screen grid, 6 posters across. Posters are sized so complete
+ * rows always fit the screen, and scrolling moves a whole row at a time, so no poster is
+ * ever cut off. The focused title is shown at the top. Back (or holding OK) closes it.
+ */
 @Composable
 private fun CategoryFullScreen(row: CategoryRow, onClose: () -> Unit, onOpen: (Int) -> Unit) {
     val firstFocus = remember { FocusRequester() }
+    var focusedTitle by remember { mutableStateOf(row.items.firstOrNull()?.title.orEmpty()) }
     LaunchedEffect(row.id) {
         delay(80)
         runCatching { firstFocus.requestFocus() }
@@ -407,40 +421,81 @@ private fun CategoryFullScreen(row: CategoryRow, onClose: () -> Unit, onOpen: (I
         onDismissRequest = onClose,
         properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
-    Column(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .safeDrawingPadding(),
-    ) {
-        ScreenHeader(row.name, onBack = onClose) {
-            Text(
-                "%,d titles".format(row.items.size),
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        PivotScrolling(pivot = 16.dp) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(6),
-                contentPadding = PaddingValues(start = SidePadding, end = SidePadding, top = 14.dp, bottom = 40.dp),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
-                verticalArrangement = Arrangement.spacedBy(18.dp),
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                gridItemsIndexed(row.items) { i, poster ->
-                    PosterCard(
-                        title = poster.title,
-                        image = poster.image,
-                        badge = ratingBadge(poster.rating),
-                        onLongClick = onClose,
-                        modifier = if (i == 0) Modifier.focusRequester(firstFocus) else Modifier,
-                        onClick = { onOpen(poster.id) },
-                    )
+        Column(
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .safeDrawingPadding(),
+        ) {
+            ScreenHeader(row.name, onBack = onClose) {
+                Text(
+                    focusedTitle,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Brand.GlowGreen,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                Spacer(Modifier.width(16.dp))
+                Text(
+                    "%,d titles".format(row.items.size),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val columns = 6
+                val gap = 18.dp
+                val vPad = 14.dp
+                // Widest posters that fit 6 across...
+                val byWidth = (maxWidth - SidePadding * 2 - gap * (columns - 1)) / columns
+                // ...but small enough that at least 2 whole rows fit the height.
+                val usableHeight = maxHeight - vPad * 2
+                val rowsByWidth = ((usableHeight + gap) / (byWidth * 1.5f + gap)).toInt()
+                val rowsVisible = rowsByWidth.coerceAtLeast(2)
+                val byHeight = ((usableHeight - gap * (rowsVisible - 1)) / rowsVisible) / 1.5f
+                val posterWidth = minOf(byWidth, byHeight)
+                val gridWidth = posterWidth * columns + gap * (columns - 1)
+                val sidePad = (maxWidth - gridWidth) / 2
+                // Exactly the whole rows that fit, so a partly visible extra row never peeks in.
+                val wholeRows = ((usableHeight + gap) / (posterWidth * 1.5f + gap)).toInt().coerceAtLeast(1)
+                val gridHeight = vPad * 2 + posterWidth * 1.5f * wholeRows + gap * (wholeRows - 1)
+
+                PivotScrolling(pivot = vPad) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(columns),
+                        contentPadding = PaddingValues(
+                            start = sidePad,
+                            end = sidePad,
+                            top = vPad,
+                            // Room so the last rows can also scroll to the top.
+                            bottom = maxHeight,
+                        ),
+                        horizontalArrangement = Arrangement.spacedBy(gap),
+                        verticalArrangement = Arrangement.spacedBy(gap),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(gridHeight),
+                    ) {
+                        gridItemsIndexed(row.items) { i, poster ->
+                            PosterCard(
+                                title = poster.title,
+                                image = poster.image,
+                                badge = ratingBadge(poster.rating),
+                                showTitle = false,
+                                onFocused = { focusedTitle = poster.title },
+                                onLongClick = onClose,
+                                modifier = Modifier
+                                    .width(posterWidth)
+                                    .then(if (i == 0) Modifier.focusRequester(firstFocus) else Modifier),
+                                onClick = { onOpen(poster.id) },
+                            )
+                        }
+                    }
                 }
             }
         }
-    }
     }
 }
 
