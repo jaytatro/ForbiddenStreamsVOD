@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -43,7 +42,7 @@ fun DetailHeader(
     plot: String?,
     credits: List<Pair<String, String?>>,
     onBack: () -> Unit,
-    actions: @Composable FlowRowScope.() -> Unit,
+    actions: @Composable () -> Unit,
 ) {
     val background = MaterialTheme.colorScheme.background
     Box(Modifier.fillMaxWidth()) {
@@ -89,8 +88,9 @@ fun DetailHeader(
                     FlowRow(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
-                        content = actions,
-                    )
+                    ) {
+                        actions()
+                    }
                 }
             }
             if (!plot.isNullOrBlank()) {
