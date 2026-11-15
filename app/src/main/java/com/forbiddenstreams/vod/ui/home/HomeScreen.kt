@@ -410,7 +410,7 @@ private fun CategoryFullScreen(row: CategoryRow, onClose: () -> Unit, onOpen: (I
         }
         PivotScrolling(pivot = 16.dp) {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 120.dp),
+                columns = GridCells.Fixed(6),
                 contentPadding = PaddingValues(start = SidePadding, end = SidePadding, top = 8.dp, bottom = 40.dp),
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp),

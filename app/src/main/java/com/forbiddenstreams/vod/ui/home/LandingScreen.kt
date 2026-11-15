@@ -1,6 +1,7 @@
 package com.forbiddenstreams.vod.ui.home
 
 import androidx.annotation.DrawableRes
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +28,7 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -81,6 +83,32 @@ fun LandingScreen(
     var crashReport by remember { mutableStateOf(container.takeCrashReport()) }
     // Which catalog is being downloaded before opening its screen.
     var downloading by remember { mutableStateOf<String?>(null) }
+    var downloadError by remember { mutableStateOf<String?>(null) }
+
+    // Download the chosen catalog (green bar shows meanwhile), then open its screen.
+    // Instant if it's already downloaded. Back cancels.
+    LaunchedEffect(downloading) {
+        val kind = downloading ?: return@LaunchedEffect
+        downloadError = null
+        try {
+            val repo = container.repository ?: throw IllegalStateException("Please sign in again")
+            if (kind == MediaKind.SERIES) {
+                repo.seriesCategories()
+                repo.allSeries()
+            } else {
+                repo.vodCategories()
+                repo.allMovies()
+            }
+            downloading = null
+            if (kind == MediaKind.SERIES) onSeries() else onMovies()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            downloading = null
+            downloadError = "Couldn't download: ${e.message ?: "network error"}. Press again to retry."
+        }
+    }
+    BackHandler(enabled = downloading != null) { downloading = null }
 
     // Quiet background check so the Settings button can show an "update" badge.
     LaunchedEffect(Unit) {
@@ -109,11 +137,36 @@ fun LandingScreen(
                 onMyList = onMyList,
                 onSettings = onSettings,
             )
+            // Green download bar between the logo and the posters (space kept so nothing moves).
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(top = 18.dp)
+                    .height(22.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                when {
+                    downloading != null -> LinearProgressIndicator(
+                        color = Brand.ToxicGreen,
+                        trackColor = Brand.ToxicGreen.copy(alpha = 0.18f),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                    )
+                    downloadError != null -> Text(
+                        downloadError.orEmpty(),
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                    )
+                }
+            }
             BoxWithConstraints(
                 Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(top = 24.dp),
+                    .padding(top = 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 val gap = 48.dp
@@ -144,16 +197,6 @@ fun LandingScreen(
 
     crashReport?.let { report -> CrashReportDialog(report, onDismiss = { crashReport = null }) }
 
-    downloading?.let { kind ->
-        CatalogDownloadDialog(
-            kind = kind,
-            onReady = {
-                downloading = null
-                if (kind == MediaKind.SERIES) onSeries() else onMovies()
-            },
-            onCancel = { downloading = null },
-        )
-    }
 }
 
 @Composable

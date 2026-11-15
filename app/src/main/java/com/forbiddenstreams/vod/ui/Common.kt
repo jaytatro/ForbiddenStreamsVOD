@@ -63,17 +63,16 @@ suspend fun <T> loadCatching(fallbackMessage: String, block: suspend () -> T): L
         Load.Error(e.message ?: fallbackMessage)
     }
 
-/** Visible focus ring + slight zoom, so D-pad navigation on Android TV is easy to follow. */
+/**
+ * Visible green focus ring, so D-pad navigation on Android TV is easy to follow.
+ * (No zoom here: zooming before a button's focusable part changes the size scrolling
+ * sees and makes lists nudge. Posters zoom safely inside [PosterCard].)
+ */
 fun Modifier.focusHighlight(shape: Shape = RoundedCornerShape(12.dp)): Modifier = composed {
     var focused by remember { mutableStateOf(false) }
-    val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "focusScale")
     val ring = Brand.GlowGreen
     this
         .onFocusChanged { focused = it.hasFocus }
-        .graphicsLayer {
-            scaleX = scale
-            scaleY = scale
-        }
         .then(if (focused) Modifier.border(3.dp, ring, shape) else Modifier)
 }
 
@@ -94,25 +93,37 @@ fun PosterCard(
     onClick: () -> Unit,
 ) {
     val shape = MaterialTheme.shapes.medium
-    // Remotes send repeated key-downs while OK is held; treat the first repeat as a long
-    // press, and skip the click that the key-up would otherwise trigger.
+    // Holding OK on the remote = long press, acted on when OK is let go.
     val keyState = remember { LongPressKeyState() }
-    val fireLongClick: (() -> Unit)? = onLongClick?.let { long -> { keyState.fire(long) } }
+    val touchLongClick: (() -> Unit)? = onLongClick?.let { long -> { if (!keyState.keyHeld) long() } }
     val click: () -> Unit = { if (!keyState.consumeSuppressedClick()) onClick() }
+
+    var focused by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "posterScale")
+    val ring = Brand.GlowGreen
     Card(
         shape = shape,
         modifier = modifier
-            .onFocusChanged { if (it.hasFocus) onFocused?.invoke() }
+            .onFocusChanged {
+                focused = it.hasFocus
+                if (it.hasFocus) onFocused?.invoke()
+            }
             .then(
-                if (fireLongClick != null) {
-                    Modifier.onPreviewKeyEvent { event -> keyState.handle(event, fireLongClick) }
+                if (onLongClick != null) {
+                    Modifier.onPreviewKeyEvent { event -> keyState.handle(event, onLongClick) }
                 } else {
                     Modifier
                 },
             )
-            .focusHighlight(shape)
             .clip(shape)
-            .combinedClickable(onClick = click, onLongClick = fireLongClick),
+            .combinedClickable(onClick = click, onLongClick = touchLongClick)
+            // The zoom and ring are applied *after* the focusable part, so scrolling sees the
+            // poster's real size. Zooming before it made lists nudge a few pixels on every move.
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .then(if (focused) Modifier.border(3.dp, ring, shape) else Modifier),
     ) {
         Box(
             Modifier
@@ -175,24 +186,20 @@ fun PosterCard(
     }
 }
 
-/** Tracks a held OK / Enter key for [PosterCard]. */
+/**
+ * Tracks the remote's OK / Enter key for [PosterCard]: a press held for [LONG_PRESS_MS] or
+ * more counts as a long press, and it fires only when the key is released.
+ */
 private class LongPressKeyState {
-    private var firedDuringPress = false
-    private var lastFired = 0L
+    /** True while OK is down on this poster (touch long-press is ignored then). */
+    var keyHeld = false
+        private set
+    private var suppressClickUntil = 0L
 
-    /** Runs [action] unless a long press was just handled (touch and key paths can both fire). */
-    fun fire(action: () -> Unit) {
-        val now = SystemClock.uptimeMillis()
-        if (now - lastFired > 700) {
-            lastFired = now
-            action()
-        }
-    }
-
-    /** True (once) if the click following a remote long press should be ignored. */
+    /** True (once) if the click that follows a long press should be ignored. */
     fun consumeSuppressedClick(): Boolean {
-        val suppress = firedDuringPress && SystemClock.uptimeMillis() - lastFired < 3_000
-        firedDuringPress = false
+        val suppress = SystemClock.uptimeMillis() < suppressClickUntil
+        suppressClickUntil = 0L
         return suppress
     }
 
@@ -201,19 +208,28 @@ private class LongPressKeyState {
         val isOk = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
             native.keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
             native.keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
-        if (!isOk || event.type != KeyEventType.KeyDown) return false
-        return when {
-            native.repeatCount == 0 -> {
-                firedDuringPress = false
-                false // let the normal press / click handling start
+        if (!isOk) return false
+        return when (event.type) {
+            KeyEventType.KeyDown -> {
+                keyHeld = true
+                // Let the first key-down through (press feedback); swallow auto-repeats.
+                native.repeatCount > 0
             }
-            !firedDuringPress -> {
-                firedDuringPress = true
-                onLong()
-                true
+            KeyEventType.KeyUp -> {
+                keyHeld = false
+                if (native.eventTime - native.downTime >= LONG_PRESS_MS) {
+                    // Skip the click this key-up would trigger, then act on the long press.
+                    suppressClickUntil = SystemClock.uptimeMillis() + 1_000
+                    onLong()
+                }
+                false // let the click handling finish its press state normally
             }
-            else -> true // ignore further repeats while held
+            else -> false
         }
+    }
+
+    private companion object {
+        const val LONG_PRESS_MS = 550L
     }
 }
 
