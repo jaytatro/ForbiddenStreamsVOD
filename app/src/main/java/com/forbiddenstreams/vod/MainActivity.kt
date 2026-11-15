@@ -22,6 +22,7 @@ import com.forbiddenstreams.vod.ui.home.BrowseScreen
 import com.forbiddenstreams.vod.ui.home.LandingScreen
 import com.forbiddenstreams.vod.ui.home.MyListScreen
 import com.forbiddenstreams.vod.ui.login.LoginScreen
+import com.forbiddenstreams.vod.ui.search.SearchScreen
 import com.forbiddenstreams.vod.ui.settings.SettingsScreen
 
 class MainActivity : ComponentActivity() {
@@ -57,8 +58,12 @@ class MainActivity : ComponentActivity() {
                             BrowseScreen(
                                 kind = kind,
                                 onBack = back,
+                                onSearch = { nav.navigate("search") },
                                 onOpen = if (kind == MediaKind.SERIES) openSeries else openMovie,
                             )
+                        }
+                        composable("search") {
+                            SearchScreen(onBack = back, onOpenMovie = openMovie, onOpenSeries = openSeries)
                         }
                         composable("mylist") {
                             MyListScreen(onBack = back, onOpenMovie = openMovie, onOpenSeries = openSeries)

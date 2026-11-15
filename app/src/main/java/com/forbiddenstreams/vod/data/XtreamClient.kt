@@ -67,11 +67,21 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
     suspend fun seriesCategories(): List<Category> =
         api("get_series_categories").list().mapNotNull { it.obj()?.toCategory() }
 
-    suspend fun movies(categoryId: String): List<Movie> =
-        api("get_vod_streams", "category_id" to categoryId).list().mapNotNull { it.obj()?.toMovie() }
+    /** Movies in one category, or the whole catalog when [categoryId] is null. */
+    suspend fun movies(categoryId: String? = null): List<Movie> {
+        val json = api("get_vod_streams", *categoryParam(categoryId))
+        // Whole catalogs can be tens of thousands of items: map them off the main thread.
+        return withContext(Dispatchers.Default) { json.list().mapNotNull { it.obj()?.toMovie() } }
+    }
 
-    suspend fun series(categoryId: String): List<Series> =
-        api("get_series", "category_id" to categoryId).list().mapNotNull { it.obj()?.toSeries() }
+    /** Series in one category, or the whole catalog when [categoryId] is null. */
+    suspend fun series(categoryId: String? = null): List<Series> {
+        val json = api("get_series", *categoryParam(categoryId))
+        return withContext(Dispatchers.Default) { json.list().mapNotNull { it.obj()?.toSeries() } }
+    }
+
+    private fun categoryParam(categoryId: String?): Array<Pair<String, String>> =
+        if (categoryId == null) emptyArray() else arrayOf("category_id" to categoryId)
 
     suspend fun movieDetails(id: Int): MovieDetails {
         val root = api("get_vod_info", "vod_id" to id.toString()).obj()
@@ -205,6 +215,7 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
             rating = str("rating"),
             extension = str("container_extension") ?: "mp4",
             categoryId = str("category_id"),
+            added = long("added"),
         )
     }
 
@@ -221,6 +232,7 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
             releaseDate = str("releaseDate") ?: str("release_date"),
             cast = str("cast"),
             backdrop = firstString("backdrop_path"),
+            added = long("last_modified"),
         )
     }
 

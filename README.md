@@ -12,12 +12,14 @@ An Android TV app (also runs on phones and tablets) for watching **movies and se
 
 - **Sign in** with an Xtream Codes server, username and password. You stay signed in on the device.
 - **Home screen** with two big poster buttons, **Movies** and **TV Series**, plus My List and Settings.
-- **Movies** and **TV Series** screens with provider categories, poster grids, ratings and search inside a category.
+- **Netflix-style Movies and TV Series screens**: every provider category is its own sideways-scrolling row, with *Recently added* first. Hold OK (or long-press) on a poster to expand its row into a full grid; Back collapses it.
+- **Keep watching** row at the top of each screen. Selecting an item opens Resume / Start over / Remove.
+- **Search**: the Search button opens a search screen; movies and TV series fill in as you type.
 - **Movie details**: backdrop, plot, year, runtime, genre, director, cast.
 - **Series details**: season picker and episode list with thumbnails, runtimes and progress bars.
 - **Playback** with ExoPlayer (Media3): MP4, MKV, TS and HLS, plus audio and subtitle track selection.
 - **Resume watching**: progress is saved every 10 seconds and when you leave the player. A title is cleared once you've watched 95% of it.
-- **My List**: a *Continue watching* row plus your **Favorites** (movies and series).
+- **My List**: Keep watching plus your **Favorites** (movies and series).
 - **In-app updates**: Settings checks GitHub Releases for a newer build, downloads it and opens the installer. The Settings button shows a badge when an update is out.
 - **Built for Android TV**: logo banner in the TV launcher, green focus rings on everything, larger posters, and remote media keys in the player.
 - **Branded look**: toxic green, prohibition red and dark teal taken from the logo.

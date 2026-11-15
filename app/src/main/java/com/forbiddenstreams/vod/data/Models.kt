@@ -36,6 +36,8 @@ data class Movie(
     val rating: String?,
     val extension: String,
     val categoryId: String?,
+    /** When the provider added it (epoch seconds), used for the "Recently added" row. */
+    val added: Long? = null,
 )
 
 data class MovieDetails(
@@ -60,6 +62,8 @@ data class Series(
     val releaseDate: String?,
     val cast: String?,
     val backdrop: String?,
+    /** Last update (epoch seconds), used for the "Recently added" row. */
+    val added: Long? = null,
 )
 
 data class Episode(
@@ -86,6 +90,13 @@ data class PosterItem(
     val title: String,
     val image: String?,
     val rating: String?,
+)
+
+/** One Netflix-style row on the Movies / TV Series screens. */
+data class CategoryRow(
+    val id: String,
+    val name: String,
+    val items: List<PosterItem>,
 )
 
 fun Movie.toPoster() = PosterItem(MediaKind.MOVIE, streamId, name, poster, rating)

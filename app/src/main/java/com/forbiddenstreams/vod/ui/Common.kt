@@ -1,6 +1,8 @@
 package com.forbiddenstreams.vod.ui
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -26,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -68,6 +71,10 @@ fun Modifier.focusHighlight(shape: Shape = RoundedCornerShape(12.dp)): Modifier 
         .then(if (focused) Modifier.border(3.dp, ring, shape) else Modifier)
 }
 
+/**
+ * Poster tile. [onLongClick] fires on a touch long-press or when OK is held on a TV remote.
+ */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun PosterCard(
     title: String,
@@ -75,10 +82,17 @@ fun PosterCard(
     modifier: Modifier = Modifier,
     badge: String? = null,
     progress: Float? = null,
+    onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val shape = MaterialTheme.shapes.medium
-    Card(onClick = onClick, shape = shape, modifier = modifier.focusHighlight(shape)) {
+    Card(
+        shape = shape,
+        modifier = modifier
+            .focusHighlight(shape)
+            .clip(shape)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+    ) {
         Box(
             Modifier
                 .fillMaxWidth()
