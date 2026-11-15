@@ -21,6 +21,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.ui.PlayerView
 import com.forbiddenstreams.vod.appContainer
 import com.forbiddenstreams.vod.data.ResumeEntry
@@ -66,6 +67,13 @@ class PlayerActivity : ComponentActivity() {
     private var playWhenReady = true
     private var ended = false
 
+    /** Play Dolby Vision as HDR10 (setting, or switched on automatically after a decoder error). */
+    private var forceHdr10 = false
+
+    /** Decode surround audio in the app instead of passing it through (after an audio error). */
+    private var pcmAudioOnly = false
+    private var reconnects = 0
+
     private val handler = Handler(Looper.getMainLooper())
     private val saveTicker = object : Runnable {
         override fun run() {
@@ -89,8 +97,10 @@ class PlayerActivity : ComponentActivity() {
         resumePositionMs = savedInstanceState?.getLong(EXTRA_START_MS)
             ?: intent.getLongExtra(EXTRA_START_MS, 0L)
 
+        forceHdr10 = appContainer().forceHdr10
         playerView = PlayerView(this).apply {
             keepScreenOn = true
+            setShowBuffering(PlayerView.SHOW_BUFFERING_ALWAYS)
             setShowSubtitleButton(true)
             setShowNextButton(false)
             setShowPreviousButton(false)
@@ -133,7 +143,17 @@ class PlayerActivity : ComponentActivity() {
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(30_000)
 
-        val exo = ExoPlayer.Builder(this)
+        val trackSelector = DefaultTrackSelector(this).apply {
+            setParameters(
+                buildUponParameters()
+                    .setExceedRendererCapabilitiesIfNecessary(true)
+                    .setExceedVideoConstraintsIfNecessary(true)
+                    .setExceedAudioConstraintsIfNecessary(true),
+            )
+        }
+        val exo = ExoPlayer.Builder(this, VodRenderersFactory(this, forceHdr10, pcmAudioOnly))
+            .setTrackSelector(trackSelector)
+            .setLoadControl(vodLoadControl())
             .setMediaSourceFactory(DefaultMediaSourceFactory(this).setDataSourceFactory(httpFactory))
             .build()
 
@@ -145,6 +165,7 @@ class PlayerActivity : ComponentActivity() {
 
         exo.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) reconnects = 0
                 if (state == Player.STATE_ENDED) {
                     ended = true
                     clearPosition()
@@ -153,12 +174,32 @@ class PlayerActivity : ComponentActivity() {
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                Toast.makeText(
-                    this@PlayerActivity,
-                    "Can't play this stream (${error.errorCodeName})",
-                    Toast.LENGTH_LONG,
-                ).show()
-                finish()
+                val code = error.errorCode
+                when {
+                    // Video decoder trouble (typically 4K Dolby Vision): retry showing HDR10.
+                    PlaybackErrors.isDecoderError(code) && !forceHdr10 -> {
+                        forceHdr10 = true
+                        restart("Switching to HDR10 for this video…")
+                    }
+                    // Audio output trouble (TrueHD / DTS passthrough): decode the audio in the app.
+                    PlaybackErrors.isAudioError(code) && !pcmAudioOnly -> {
+                        pcmAudioOnly = true
+                        restart("Switching audio mode…")
+                    }
+                    // Dropped connection: reconnect and carry on from the same spot.
+                    PlaybackErrors.isNetworkError(code) && reconnects < 3 -> {
+                        reconnects++
+                        restart("Connection dropped, reconnecting…")
+                    }
+                    else -> {
+                        Toast.makeText(
+                            this@PlayerActivity,
+                            "Can't play this stream (${error.errorCodeName})",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                        finish()
+                    }
+                }
             }
         })
 
@@ -170,6 +211,15 @@ class PlayerActivity : ComponentActivity() {
         playerView.requestFocus()
         player = exo
         handler.postDelayed(saveTicker, SAVE_INTERVAL_MS)
+    }
+
+    /** Rebuilds the player with the current settings and continues from the same position. */
+    private fun restart(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+        handler.post {
+            releasePlayer()
+            initializePlayer()
+        }
     }
 
     private fun releasePlayer() {

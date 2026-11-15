@@ -2,6 +2,7 @@ package com.forbiddenstreams.vod.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -64,6 +65,16 @@ class LocalStore(context: Context) {
         MessageDigest.getInstance("SHA-256")
             .digest("forbidden-streams-vod:$pin".toByteArray())
             .joinToString("") { "%02x".format(it) }
+
+    // ---- Playback ----
+
+    private val forceHdr10Key = booleanPreferencesKey("force_hdr10")
+
+    val forceHdr10: Flow<Boolean> = dataStore.data.map { it[forceHdr10Key] ?: false }
+
+    suspend fun setForceHdr10(value: Boolean) {
+        dataStore.edit { it[forceHdr10Key] = value }
+    }
 
     // ---- Catalog sizes (for the download percentage) ----
 

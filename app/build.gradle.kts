@@ -80,6 +80,9 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.5.1")
     implementation("androidx.media3:media3-exoplayer-hls:1.5.1")
     implementation("androidx.media3:media3-ui:1.5.1")
+    // Prebuilt FFmpeg audio decoders for Media3 (TrueHD, DTS, DTS-HD, AC-3 / E-AC-3, ...),
+    // published by the Jellyfin project. Used when the TV box can't play a format itself.
+    implementation("org.jellyfin.media3:media3-ffmpeg-decoder:1.5.0+1")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")

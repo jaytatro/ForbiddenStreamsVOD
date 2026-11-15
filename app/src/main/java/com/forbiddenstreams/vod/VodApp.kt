@@ -35,6 +35,7 @@ class VodApp : Application() {
         // A single tiny read, done up front so every screen (and the player after
         // process death) can rely on the account being known.
         runBlocking { container.store.account.first() }?.let(container::activate)
+        container.forceHdr10 = runBlocking { container.store.forceHdr10.first() }
     }
 }
 
@@ -76,6 +77,9 @@ class AppContainer(context: Context) {
     /** Set by the background check on the home screen; shows a badge on the Settings button. */
     var availableUpdate by mutableStateOf<UpdateInfo?>(null)
     var checkedForUpdates = false
+
+    /** Settings > Playback: always play Dolby Vision as HDR10. */
+    var forceHdr10 = false
 
     /** For work that must finish even if the screen that started it closes (e.g. saving progress). */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)

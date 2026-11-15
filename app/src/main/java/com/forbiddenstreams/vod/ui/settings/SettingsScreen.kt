@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Refresh
@@ -27,6 +30,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -235,6 +240,42 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
                     onDownload = vm::download,
                     onInstall = { launchInstall(it) },
                 )
+            }
+
+            Section("Playback") {
+                val forceHdr10 by container.store.forceHdr10.collectAsState(initial = container.forceHdr10)
+                Text(
+                    "4K Dolby Vision movies that your device can't handle are played as HDR10 automatically. " +
+                        "If Dolby Vision movies still freeze or stop, turn this on to always play them as HDR10.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .focusHighlight(RoundedCornerShape(12.dp))
+                        .toggleable(
+                            value = forceHdr10,
+                            role = Role.Switch,
+                            onValueChange = { on ->
+                                container.forceHdr10 = on
+                                scope.launch { container.store.setForceHdr10(on) }
+                            },
+                        )
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        "Always play Dolby Vision as HDR10",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(Modifier.width(16.dp))
+                    Switch(
+                        checked = forceHdr10,
+                        onCheckedChange = null,
+                        colors = SwitchDefaults.colors(checkedTrackColor = Brand.ToxicGreen),
+                    )
+                }
             }
 
             Section("Parental controls") {
