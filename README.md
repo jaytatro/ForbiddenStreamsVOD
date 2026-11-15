@@ -11,13 +11,15 @@ An Android TV app (also runs on phones and tablets) for watching **movies and se
 ## Features (v0.1)
 
 - **Sign in** with an Xtream Codes server, username and password. You stay signed in on the device.
-- **Movies** and **Series** tabs with provider categories, poster grids, ratings and search inside a category.
+- **Home screen** with two big poster buttons, **Movies** and **TV Series**, plus My List and Settings.
+- **Movies** and **TV Series** screens with provider categories, poster grids, ratings and search inside a category.
 - **Movie details**: backdrop, plot, year, runtime, genre, director, cast.
 - **Series details**: season picker and episode list with thumbnails, runtimes and progress bars.
 - **Playback** with ExoPlayer (Media3): MP4, MKV, TS and HLS, plus audio and subtitle track selection.
 - **Resume watching**: progress is saved every 10 seconds and when you leave the player. A title is cleared once you've watched 95% of it.
 - **My List**: a *Continue watching* row plus your **Favorites** (movies and series).
-- **Built for Android TV**: logo banner in the TV launcher, a side menu you reach with the D-pad, green focus rings on everything, larger posters, and remote media keys in the player.
+- **In-app updates**: Settings checks GitHub Releases for a newer build, downloads it and opens the installer. The Settings button shows a badge when an update is out.
+- **Built for Android TV**: logo banner in the TV launcher, green focus rings on everything, larger posters, and remote media keys in the player.
 - **Branded look**: toxic green, prohibition red and dark teal taken from the logo.
 - Favorites and progress are stored **per account**, so switching providers doesn't mix them.
 
@@ -33,8 +35,12 @@ An Android TV app (also runs on phones and tablets) for watching **movies and se
 # APK: app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### GitHub Actions
-Every push builds a debug APK. Open the **Actions** tab, pick the latest run, and download **ForbiddenStreamsVOD-debug** under *Artifacts*.
+### Download
+Every push to `main` builds the app and publishes it as the **latest** release:
+
+https://github.com/jaytatro/ForbiddenStreamsVOD/releases/latest/download/ForbiddenStreamsVOD.apk
+
+The build number comes from the GitHub Actions run number, and the in-app updater compares it with the `(build N)` in the release title.
 
 ### Installing on Android TV / Fire TV
 Turn on developer options and USB/network debugging on the TV, then:

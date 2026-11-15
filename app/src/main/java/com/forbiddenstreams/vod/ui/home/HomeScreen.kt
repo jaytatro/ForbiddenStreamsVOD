@@ -76,6 +76,7 @@ import com.forbiddenstreams.vod.ui.LoadingBox
 import com.forbiddenstreams.vod.ui.MessageBox
 import com.forbiddenstreams.vod.ui.Playback
 import com.forbiddenstreams.vod.ui.PosterCard
+import com.forbiddenstreams.vod.ui.ScreenHeader
 import com.forbiddenstreams.vod.ui.loadCatching
 import com.forbiddenstreams.vod.ui.ratingBadge
 import kotlinx.coroutines.Job
@@ -83,99 +84,32 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
+/** Category chips + poster grid for movies or TV series. */
 @Composable
-fun HomeScreen(
-    onOpenMovie: (Int) -> Unit,
-    onOpenSeries: (Int) -> Unit,
-    onSignedOut: () -> Unit,
-) {
-    val container = LocalContext.current.appContainer()
-    val scope = rememberCoroutineScope()
-    var tab by rememberSaveable { mutableIntStateOf(0) }
-
-    // TV-style layout: a side menu the D-pad can reach with Left, content on the right.
-    Row(
+fun BrowseScreen(kind: String, onBack: () -> Unit, onOpen: (Int) -> Unit) {
+    Column(
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+            .background(MaterialTheme.colorScheme.background)
+            .systemBarsPadding(),
     ) {
-        NavigationRail(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
-            modifier = Modifier.systemBarsPadding(),
-            header = {
-                Image(
-                    painter = painterResource(R.drawable.logo),
-                    contentDescription = "Forbidden Streams VOD",
-                    modifier = Modifier
-                        .padding(top = 12.dp, bottom = 20.dp)
-                        .size(64.dp)
-                        .clip(RoundedCornerShape(12.dp)),
-                )
-            },
-        ) {
-            val itemColors = NavigationRailItemDefaults.colors(
-                selectedIconColor = MaterialTheme.colorScheme.onPrimary,
-                selectedTextColor = Brand.GlowGreen,
-                indicatorColor = Brand.ToxicGreen,
-                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            RailEntry("Movies", Icons.Default.PlayArrow, tab == 0, itemColors) { tab = 0 }
-            RailEntry("Series", Icons.AutoMirrored.Filled.List, tab == 1, itemColors) { tab = 1 }
-            RailEntry("My List", Icons.Default.Favorite, tab == 2, itemColors) { tab = 2 }
-            Spacer(Modifier.weight(1f))
-            RailEntry("Sign out", Icons.AutoMirrored.Filled.ExitToApp, false, itemColors) {
-                scope.launch {
-                    container.signOut()
-                    onSignedOut()
-                }
-            }
-            Spacer(Modifier.height(16.dp))
-        }
-        Column(
-            Modifier
-                .weight(1f)
-                .fillMaxHeight()
-                .systemBarsPadding(),
-        ) {
-            Text(
-                when (tab) {
-                    0 -> "Movies"
-                    1 -> "Series"
-                    else -> "My List"
-                },
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Black,
-                color = Brand.ToxicGreen,
-                modifier = Modifier.padding(start = 24.dp, top = 20.dp, end = 24.dp),
-            )
-            when (tab) {
-                0 -> BrowseTab(MediaKind.MOVIE, onOpen = onOpenMovie)
-                1 -> BrowseTab(MediaKind.SERIES, onOpen = onOpenSeries)
-                else -> MyListTab(onOpenMovie = onOpenMovie, onOpenSeries = onOpenSeries)
-            }
-        }
+        ScreenHeader(if (kind == MediaKind.MOVIE) "Movies" else "TV Series", onBack = onBack)
+        BrowseTab(kind, onOpen = onOpen)
     }
 }
 
+/** Continue watching + favorites. */
 @Composable
-private fun RailEntry(
-    label: String,
-    icon: ImageVector,
-    selected: Boolean,
-    colors: NavigationRailItemColors,
-    onClick: () -> Unit,
-) {
-    NavigationRailItem(
-        selected = selected,
-        onClick = onClick,
-        icon = { Icon(icon, contentDescription = null) },
-        label = { Text(label) },
-        colors = colors,
-        modifier = Modifier
-            .padding(vertical = 4.dp)
-            .focusHighlight(RoundedCornerShape(16.dp)),
-    )
+fun MyListScreen(onBack: () -> Unit, onOpenMovie: (Int) -> Unit, onOpenSeries: (Int) -> Unit) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .systemBarsPadding(),
+    ) {
+        ScreenHeader("My List", onBack = onBack)
+        MyListTab(onOpenMovie = onOpenMovie, onOpenSeries = onOpenSeries)
+    }
 }
 
 // ---- Movies / Series browsing ---------------------------------------------------------------

@@ -15,8 +15,11 @@ android {
         applicationId = "com.forbiddenstreams.vod"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI sets GITHUB_RUN_NUMBER, so every GitHub build has a higher version than the last.
+        // The in-app updater compares this number with the "(build N)" in the latest release.
+        val buildNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 1
+        versionCode = buildNumber
+        versionName = "0.2.$buildNumber"
     }
 
     // Fixed debug key (committed on purpose) so every CI build can install over the last one.
@@ -46,6 +49,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
