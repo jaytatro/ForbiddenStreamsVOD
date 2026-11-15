@@ -1,6 +1,10 @@
-# ForbiddenStreams VOD
+# Forbidden Streams VOD
 
-An Android and Android TV app for watching **movies and series** from an IPTV provider that uses an **Xtream Codes** login (server URL, username and password).
+<img src="app/src/main/res/drawable-nodpi/logo.jpg" width="280" alt="Forbidden Streams VOD logo">
+
+*plug in the revolution*
+
+An Android TV app (also runs on phones and tablets) for watching **movies and series** from an IPTV provider that uses an **Xtream Codes** login (server URL, username and password).
 
 > This app is a player only. It doesn't include, host or link to any content. You bring your own provider login, and you're responsible for using a provider you're licensed to use.
 
@@ -13,7 +17,8 @@ An Android and Android TV app for watching **movies and series** from an IPTV pr
 - **Playback** with ExoPlayer (Media3): MP4, MKV, TS and HLS, plus audio and subtitle track selection.
 - **Resume watching**: progress is saved every 10 seconds and when you leave the player. A title is cleared once you've watched 95% of it.
 - **My List**: a *Continue watching* row plus your **Favorites** (movies and series).
-- **Android TV**: shows up in the TV launcher, works with the D-pad (focus rings on everything), and remote media keys work in the player.
+- **Built for Android TV**: logo banner in the TV launcher, a side menu you reach with the D-pad, green focus rings on everything, larger posters, and remote media keys in the player.
+- **Branded look**: toxic green, prohibition red and dark teal taken from the logo.
 - Favorites and progress are stored **per account**, so switching providers doesn't mix them.
 
 ## Build

@@ -1,5 +1,26 @@
 package com.forbiddenstreams.vod.ui.home
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemColors
+import androidx.compose.material3.NavigationRailItemDefaults
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
+import com.forbiddenstreams.vod.R
+import com.forbiddenstreams.vod.ui.Brand
+import com.forbiddenstreams.vod.ui.focusHighlight
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -19,17 +40,12 @@ import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -67,7 +83,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     onOpenMovie: (Int) -> Unit,
@@ -77,35 +92,63 @@ fun HomeScreen(
     val container = LocalContext.current.appContainer()
     val scope = rememberCoroutineScope()
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    val tabs = listOf("Movies", "Series", "My List")
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("ForbiddenStreams VOD", fontWeight = FontWeight.Bold) },
-                actions = {
-                    IconButton(onClick = {
-                        scope.launch {
-                            container.signOut()
-                            onSignedOut()
-                        }
-                    }) {
-                        Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Sign out")
-                    }
-                },
-            )
-        },
-    ) { padding ->
-        Column(
-            Modifier
-                .padding(padding)
-                .fillMaxSize(),
+    // TV-style layout: a side menu the D-pad can reach with Left, content on the right.
+    Row(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background),
+    ) {
+        NavigationRail(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+            modifier = Modifier.systemBarsPadding(),
+            header = {
+                Image(
+                    painter = painterResource(R.drawable.logo),
+                    contentDescription = "Forbidden Streams VOD",
+                    modifier = Modifier
+                        .padding(top = 12.dp, bottom = 20.dp)
+                        .size(64.dp)
+                        .clip(RoundedCornerShape(12.dp)),
+                )
+            },
         ) {
-            TabRow(selectedTabIndex = tab) {
-                tabs.forEachIndexed { index, label ->
-                    Tab(selected = tab == index, onClick = { tab = index }, text = { Text(label) })
+            val itemColors = NavigationRailItemDefaults.colors(
+                selectedIconColor = MaterialTheme.colorScheme.onPrimary,
+                selectedTextColor = Brand.GlowGreen,
+                indicatorColor = Brand.ToxicGreen,
+                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            RailEntry("Movies", Icons.Default.PlayArrow, tab == 0, itemColors) { tab = 0 }
+            RailEntry("Series", Icons.AutoMirrored.Filled.List, tab == 1, itemColors) { tab = 1 }
+            RailEntry("My List", Icons.Default.Favorite, tab == 2, itemColors) { tab = 2 }
+            Spacer(Modifier.weight(1f))
+            RailEntry("Sign out", Icons.AutoMirrored.Filled.ExitToApp, false, itemColors) {
+                scope.launch {
+                    container.signOut()
+                    onSignedOut()
                 }
             }
+            Spacer(Modifier.height(16.dp))
+        }
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .systemBarsPadding(),
+        ) {
+            Text(
+                when (tab) {
+                    0 -> "Movies"
+                    1 -> "Series"
+                    else -> "My List"
+                },
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Black,
+                color = Brand.ToxicGreen,
+                modifier = Modifier.padding(start = 24.dp, top = 20.dp, end = 24.dp),
+            )
             when (tab) {
                 0 -> BrowseTab(MediaKind.MOVIE, onOpen = onOpenMovie)
                 1 -> BrowseTab(MediaKind.SERIES, onOpen = onOpenSeries)
@@ -113,6 +156,26 @@ fun HomeScreen(
             }
         }
     }
+}
+
+@Composable
+private fun RailEntry(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    colors: NavigationRailItemColors,
+    onClick: () -> Unit,
+) {
+    NavigationRailItem(
+        selected = selected,
+        onClick = onClick,
+        icon = { Icon(icon, contentDescription = null) },
+        label = { Text(label) },
+        colors = colors,
+        modifier = Modifier
+            .padding(vertical = 4.dp)
+            .focusHighlight(RoundedCornerShape(16.dp)),
+    )
 }
 
 // ---- Movies / Series browsing ---------------------------------------------------------------
@@ -195,7 +258,7 @@ private fun BrowseTab(kind: String, onOpen: (Int) -> Unit) {
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(start = 16.dp, end = 8.dp, top = 12.dp),
+                        .padding(start = 24.dp, end = 16.dp, top = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     OutlinedTextField(
@@ -218,11 +281,12 @@ private fun BrowseTab(kind: String, onOpen: (Int) -> Unit) {
                     }
                 }
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     items(cats.value) { category ->
                         FilterChip(
+                            modifier = Modifier.focusHighlight(RoundedCornerShape(8.dp)),
                             selected = category.id == vm.selected?.id,
                             onClick = { vm.select(category) },
                             label = { Text(category.name) },
@@ -253,8 +317,8 @@ private fun BrowseTab(kind: String, onOpen: (Int) -> Unit) {
 @Composable
 private fun PosterGrid(posters: List<PosterItem>, onOpen: (Int) -> Unit) {
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 128.dp),
-        contentPadding = PaddingValues(16.dp),
+        columns = GridCells.Adaptive(minSize = 140.dp),
+        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 32.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize(),
@@ -292,8 +356,8 @@ private fun MyListTab(onOpenMovie: (Int) -> Unit, onOpenSeries: (Int) -> Unit) {
     }
 
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 128.dp),
-        contentPadding = PaddingValues(16.dp),
+        columns = GridCells.Adaptive(minSize = 140.dp),
+        contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 12.dp, bottom = 32.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize(),
@@ -308,7 +372,7 @@ private fun MyListTab(onOpenMovie: (Int) -> Unit, onOpenSeries: (Int) -> Unit) {
                             image = entry.poster,
                             badge = entry.subtitle,
                             progress = entry.progress,
-                            modifier = Modifier.width(128.dp),
+                            modifier = Modifier.width(140.dp),
                             onClick = { Playback.start(context, entry) },
                         )
                     }

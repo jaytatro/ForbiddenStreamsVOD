@@ -58,7 +58,7 @@ suspend fun <T> loadCatching(fallbackMessage: String, block: suspend () -> T): L
 fun Modifier.focusHighlight(shape: Shape = RoundedCornerShape(12.dp)): Modifier = composed {
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "focusScale")
-    val ring = MaterialTheme.colorScheme.primary
+    val ring = Brand.GlowGreen
     this
         .onFocusChanged { focused = it.hasFocus }
         .graphicsLayer {

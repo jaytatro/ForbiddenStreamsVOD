@@ -52,7 +52,7 @@ fun DetailHeader(
             contentScale = ContentScale.Crop,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(280.dp)
+                .height(340.dp)
                 .alpha(0.45f),
         )
         Box(
@@ -75,7 +75,7 @@ fun DetailHeader(
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .width(120.dp)
+                        .width(160.dp)
                         .aspectRatio(2f / 3f)
                         .clip(RoundedCornerShape(10.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant),

@@ -224,6 +224,7 @@ fun SeriesDetailScreen(id: Int, onBack: () -> Unit) {
                         ) {
                             items(d.seasons.keys.toList()) { number ->
                                 FilterChip(
+                                    modifier = Modifier.focusHighlight(RoundedCornerShape(8.dp)),
                                     selected = number == vm.season,
                                     onClick = { vm.season = number },
                                     label = { Text("Season $number") },

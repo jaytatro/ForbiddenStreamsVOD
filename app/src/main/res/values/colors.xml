@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Palette taken from the Forbidden Streams VOD logo. -->
 <resources>
-    <color name="background">#FF0E0E10</color>
-    <color name="accent">#FFE53935</color>
-    <color name="ic_launcher_background">#FF141418</color>
+    <color name="background">#FF0F1A1B</color>
+    <color name="toxic_green">#FF6CCD4E</color>
+    <color name="forbidden_red">#FF981517</color>
+    <color name="ic_launcher_background">#FF0F1A1B</color>
 </resources>
