@@ -1,5 +1,7 @@
 package com.forbiddenstreams.vod.data
 
+import android.util.JsonReader
+import android.util.JsonToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -12,6 +14,7 @@ import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.EOFException
 import java.io.IOException
 
 /** Sent with API calls and stream requests. Some providers filter by user agent; change it here if needed. */
@@ -68,17 +71,12 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
         api("get_series_categories").list().mapNotNull { it.obj()?.toCategory() }
 
     /** Movies in one category, or the whole catalog when [categoryId] is null. */
-    suspend fun movies(categoryId: String? = null): List<Movie> {
-        val json = api("get_vod_streams", *categoryParam(categoryId))
-        // Whole catalogs can be tens of thousands of items: map them off the main thread.
-        return withContext(Dispatchers.Default) { json.list().mapNotNull { it.obj()?.toMovie() } }
-    }
+    suspend fun movies(categoryId: String? = null): List<Movie> =
+        streamList("get_vod_streams", *categoryParam(categoryId)) { it.toMovie() }
 
     /** Series in one category, or the whole catalog when [categoryId] is null. */
-    suspend fun series(categoryId: String? = null): List<Series> {
-        val json = api("get_series", *categoryParam(categoryId))
-        return withContext(Dispatchers.Default) { json.list().mapNotNull { it.obj()?.toSeries() } }
-    }
+    suspend fun series(categoryId: String? = null): List<Series> =
+        streamList("get_series", *categoryParam(categoryId)) { it.toSeries() }
 
     private fun categoryParam(categoryId: String?): Array<Pair<String, String>> =
         if (categoryId == null) emptyArray() else arrayOf("category_id" to categoryId)
@@ -167,18 +165,109 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
 
     // ---- Plumbing -------------------------------------------------------------------------
 
+    /**
+     * Reads a (possibly huge) list response item by item straight from the network, so a
+     * catalog of tens of thousands of titles never sits in memory as one big string / tree.
+     * Accepts a JSON array, or an object whose values are the items (some panels do that).
+     */
+    private suspend fun <T> streamList(
+        action: String,
+        vararg params: Pair<String, String>,
+        map: (JsonObject) -> T?,
+    ): List<T> = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url(apiUrl(action, *params)).header("User-Agent", USER_AGENT).build()
+        try {
+            http.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) throw XtreamException("Server returned HTTP ${response.code}")
+                val body = response.body ?: return@use emptyList()
+                val out = ArrayList<T>()
+                try {
+                    JsonReader(body.charStream().buffered()).use { reader ->
+                        val first = try {
+                            reader.peek()
+                        } catch (e: EOFException) {
+                            JsonToken.END_DOCUMENT // empty body = empty list
+                        }
+                        when (first) {
+                            JsonToken.BEGIN_ARRAY -> {
+                                reader.beginArray()
+                                while (reader.hasNext()) {
+                                    (readElement(reader) as? JsonObject)?.let(map)?.let(out::add)
+                                }
+                                reader.endArray()
+                            }
+                            JsonToken.BEGIN_OBJECT -> {
+                                reader.beginObject()
+                                while (reader.hasNext()) {
+                                    reader.nextName()
+                                    (readElement(reader) as? JsonObject)?.let(map)?.let(out::add)
+                                }
+                                reader.endObject()
+                            }
+                            JsonToken.END_DOCUMENT -> Unit
+                            else -> throw XtreamException("Unexpected response from the server")
+                        }
+                    }
+                } catch (e: XtreamException) {
+                    throw e
+                } catch (e: IOException) {
+                    // Malformed JSON (e.g. an HTML error page) or the connection dropped mid-list.
+                    throw XtreamException("The server sent an incomplete or invalid catalog. Please try again.", e)
+                }
+                out
+            }
+        } catch (e: XtreamException) {
+            throw e
+        } catch (e: IllegalStateException) {
+            throw XtreamException("Unexpected response from the server", e)
+        } catch (e: IOException) {
+            // Includes malformed JSON (e.g. an HTML error page).
+            throw XtreamException(e.message ?: "Network error", e)
+        }
+    }
+
+    /** Reads one JSON value (an item is small) into a kotlinx JsonElement. */
+    private fun readElement(reader: JsonReader): JsonElement = when (reader.peek()) {
+        JsonToken.BEGIN_OBJECT -> {
+            val map = LinkedHashMap<String, JsonElement>()
+            reader.beginObject()
+            while (reader.hasNext()) map[reader.nextName()] = readElement(reader)
+            reader.endObject()
+            JsonObject(map)
+        }
+        JsonToken.BEGIN_ARRAY -> {
+            val list = ArrayList<JsonElement>()
+            reader.beginArray()
+            while (reader.hasNext()) list += readElement(reader)
+            reader.endArray()
+            JsonArray(list)
+        }
+        JsonToken.STRING, JsonToken.NUMBER -> JsonPrimitive(reader.nextString())
+        JsonToken.BOOLEAN -> JsonPrimitive(reader.nextBoolean())
+        JsonToken.NULL -> {
+            reader.nextNull()
+            JsonNull
+        }
+        else -> {
+            reader.skipValue()
+            JsonNull
+        }
+    }
+
+    private fun apiUrl(action: String?, vararg params: Pair<String, String>): HttpUrl =
+        base.newBuilder()
+            .addPathSegment("player_api.php")
+            .addQueryParameter("username", account.username)
+            .addQueryParameter("password", account.password)
+            .apply {
+                if (action != null) addQueryParameter("action", action)
+                params.forEach { (k, v) -> addQueryParameter(k, v) }
+            }
+            .build()
+
     private suspend fun api(action: String?, vararg params: Pair<String, String>): JsonElement =
         withContext(Dispatchers.IO) {
-            val url = base.newBuilder()
-                .addPathSegment("player_api.php")
-                .addQueryParameter("username", account.username)
-                .addQueryParameter("password", account.password)
-                .apply {
-                    if (action != null) addQueryParameter("action", action)
-                    params.forEach { (k, v) -> addQueryParameter(k, v) }
-                }
-                .build()
-            val request = Request.Builder().url(url).header("User-Agent", USER_AGENT).build()
+            val request = Request.Builder().url(apiUrl(action, *params)).header("User-Agent", USER_AGENT).build()
             try {
                 http.newCall(request).execute().use { response ->
                     if (!response.isSuccessful) throw XtreamException("Server returned HTTP ${response.code}")

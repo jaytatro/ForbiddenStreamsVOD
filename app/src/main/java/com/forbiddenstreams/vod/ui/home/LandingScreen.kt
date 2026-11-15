@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
@@ -29,8 +30,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +54,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
@@ -71,6 +77,7 @@ fun LandingScreen(
 ) {
     val container = LocalContext.current.appContainer()
     val moviesFocus = remember { FocusRequester() }
+    var crashReport by remember { mutableStateOf(container.takeCrashReport()) }
 
     // Quiet background check so the Settings button can show an "update" badge.
     LaunchedEffect(Unit) {
@@ -131,6 +138,33 @@ fun LandingScreen(
             }
         }
     }
+
+    crashReport?.let { report -> CrashReportDialog(report, onDismiss = { crashReport = null }) }
+}
+
+@Composable
+private fun CrashReportDialog(report: String, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("The app closed unexpectedly last time") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Take a photo of this and send it over so it can be fixed:",
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Text(
+                    report.lineSequence().take(22).joinToString("\n"),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss, modifier = Modifier.focusHighlight(CircleShape)) { Text("OK") }
+        },
+    )
 }
 
 @Composable
