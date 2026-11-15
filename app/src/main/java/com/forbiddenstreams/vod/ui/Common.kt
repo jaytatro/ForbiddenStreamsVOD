@@ -82,6 +82,8 @@ fun PosterCard(
     modifier: Modifier = Modifier,
     badge: String? = null,
     progress: Float? = null,
+    showTitle: Boolean = true,
+    onFocused: (() -> Unit)? = null,
     onLongClick: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
@@ -89,6 +91,7 @@ fun PosterCard(
     Card(
         shape = shape,
         modifier = modifier
+            .onFocusChanged { if (it.hasFocus) onFocused?.invoke() }
             .focusHighlight(shape)
             .clip(shape)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
@@ -141,14 +144,16 @@ fun PosterCard(
                 )
             }
         }
-        Text(
-            title,
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 2,
-            minLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(8.dp),
-        )
+        if (showTitle) {
+            Text(
+                title,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                minLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(8.dp),
+            )
+        }
     }
 }
 

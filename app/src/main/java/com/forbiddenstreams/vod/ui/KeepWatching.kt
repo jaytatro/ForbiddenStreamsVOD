@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -47,6 +47,9 @@ fun KeepWatchingRow(
     posterWidth: Dp,
     onSelect: (ResumeEntry) -> Unit,
     modifier: Modifier = Modifier,
+    showTitles: Boolean = true,
+    firstItemFocus: FocusRequester? = null,
+    onFocused: ((ResumeEntry) -> Unit)? = null,
 ) {
     Column(modifier) {
         RowTitle("Keep watching")
@@ -54,13 +57,17 @@ fun KeepWatchingRow(
             contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            items(entries) { entry ->
+            itemsIndexed(entries) { index, entry ->
                 PosterCard(
                     title = entry.title,
                     image = entry.poster,
                     badge = entry.subtitle,
                     progress = entry.progress,
-                    modifier = Modifier.width(posterWidth),
+                    showTitle = showTitles,
+                    onFocused = onFocused?.let { { it(entry) } },
+                    modifier = Modifier
+                        .width(posterWidth)
+                        .then(if (index == 0 && firstItemFocus != null) Modifier.focusRequester(firstItemFocus) else Modifier),
                     onClick = { onSelect(entry) },
                 )
             }

@@ -6,10 +6,12 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import java.security.MessageDigest
 
 private val Context.vodDataStore by preferencesDataStore(name = "vod_store")
 
@@ -23,6 +25,7 @@ class LocalStore(context: Context) {
     private val json = Json { ignoreUnknownKeys = true }
 
     private val accountKey = stringPreferencesKey("account")
+    private val pinKey = stringPreferencesKey("parental_pin_sha256")
     private fun favoritesKey(accountId: String) = stringPreferencesKey("favorites_$accountId")
     private fun resumeKey(accountId: String) = stringPreferencesKey("resume_$accountId")
 
@@ -39,6 +42,27 @@ class LocalStore(context: Context) {
     suspend fun clearAccount() {
         dataStore.edit { it.remove(accountKey) }
     }
+
+    // ---- Parental controls ----
+
+    /** True while a parental PIN is set; 18+ content is hidden. */
+    val parentalEnabled: Flow<Boolean> = dataStore.data.map { it[pinKey] != null }
+
+    suspend fun setParentalPin(pin: String) {
+        dataStore.edit { it[pinKey] = hashPin(pin) }
+    }
+
+    suspend fun clearParentalPin() {
+        dataStore.edit { it.remove(pinKey) }
+    }
+
+    suspend fun checkParentalPin(pin: String): Boolean =
+        dataStore.data.first()[pinKey] == hashPin(pin)
+
+    private fun hashPin(pin: String): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest("forbidden-streams-vod:$pin".toByteArray())
+            .joinToString("") { "%02x".format(it) }
 
     // ---- Favorites ----
 

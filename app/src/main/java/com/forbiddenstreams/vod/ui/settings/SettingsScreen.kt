@@ -30,6 +30,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,8 +67,70 @@ sealed interface UpdateState {
     data class Failed(val message: String, val update: UpdateInfo? = null) : UpdateState
 }
 
+/** Where we are in a parental-controls PIN flow. */
+sealed interface PinStep {
+    data object Create : PinStep
+    data class Confirm(val first: String) : PinStep
+    data object VerifyToTurnOff : PinStep
+    data object VerifyToChange : PinStep
+}
+
 class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     val updates = container.updates
+    val parentalEnabled = container.store.parentalEnabled
+
+    var pinStep by mutableStateOf<PinStep?>(null)
+        private set
+    var pinError by mutableStateOf<String?>(null)
+        private set
+    var parentalMessage by mutableStateOf<String?>(null)
+        private set
+
+    fun startPin(step: PinStep) {
+        pinError = null
+        parentalMessage = null
+        pinStep = step
+    }
+
+    fun cancelPin() {
+        pinStep = null
+        pinError = null
+    }
+
+    fun onPinEntered(pin: String) {
+        val step = pinStep ?: return
+        viewModelScope.launch {
+            when (step) {
+                PinStep.Create -> {
+                    pinError = null
+                    pinStep = PinStep.Confirm(pin)
+                }
+                is PinStep.Confirm -> if (pin == step.first) {
+                    container.store.setParentalPin(pin)
+                    pinStep = null
+                    pinError = null
+                    parentalMessage = "Parental controls are on. 18+ content is hidden."
+                } else {
+                    pinError = "Those PINs didn't match. Start again."
+                    pinStep = PinStep.Create
+                }
+                PinStep.VerifyToTurnOff -> if (container.store.checkParentalPin(pin)) {
+                    container.store.clearParentalPin()
+                    pinStep = null
+                    pinError = null
+                    parentalMessage = "Parental controls are off."
+                } else {
+                    pinError = "Wrong PIN. Try again."
+                }
+                PinStep.VerifyToChange -> if (container.store.checkParentalPin(pin)) {
+                    pinError = null
+                    pinStep = PinStep.Create
+                } else {
+                    pinError = "Wrong PIN. Try again."
+                }
+            }
+        }
+    }
 
     var state by mutableStateOf<UpdateState>(
         container.availableUpdate?.let { UpdateState.Available(it) } ?: UpdateState.Idle,
@@ -174,6 +237,40 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
                 )
             }
 
+            Section("Parental controls") {
+                val enabled by vm.parentalEnabled.collectAsState(initial = false)
+                Text(
+                    if (enabled) "On: 18+ content is hidden." else "Off",
+                    color = if (enabled) Brand.GlowGreen else MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    "Hides categories and titles marked 18+ or XXX (and adult categories) in Movies, " +
+                        "TV Series, search and My List. A 4-digit PIN is needed to turn it off.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                vm.parentalMessage?.let { Text(it, color = Brand.GlowGreen, style = MaterialTheme.typography.bodyMedium) }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (enabled) {
+                        OutlinedButton(
+                            onClick = { vm.startPin(PinStep.VerifyToTurnOff) },
+                            modifier = Modifier.focusHighlight(CircleShape),
+                        ) { Text("Turn off") }
+                        OutlinedButton(
+                            onClick = { vm.startPin(PinStep.VerifyToChange) },
+                            modifier = Modifier.focusHighlight(CircleShape),
+                        ) { Text("Change PIN") }
+                    } else {
+                        Button(
+                            onClick = { vm.startPin(PinStep.Create) },
+                            modifier = Modifier.focusHighlight(CircleShape),
+                        ) { Text("Turn on") }
+                    }
+                }
+            }
+
             Section("Account") {
                 val account = container.account
                 Text("Server: ${account?.server ?: "—"}", style = MaterialTheme.typography.bodyLarge)
@@ -193,6 +290,22 @@ fun SettingsScreen(onBack: () -> Unit, onSignedOut: () -> Unit) {
                 }
             }
         }
+    }
+
+    vm.pinStep?.let { step ->
+        val (title, message) = when (step) {
+            PinStep.Create -> "Create a PIN" to "Choose a 4-digit PIN. You'll need it to turn parental controls off."
+            is PinStep.Confirm -> "Confirm your PIN" to "Enter the same 4 digits again."
+            PinStep.VerifyToTurnOff -> "Enter your PIN" to "Enter your PIN to turn parental controls off."
+            PinStep.VerifyToChange -> "Enter your current PIN" to null
+        }
+        PinDialog(
+            title = title,
+            message = message,
+            error = vm.pinError,
+            onPin = vm::onPinEntered,
+            onDismiss = vm::cancelPin,
+        )
     }
 }
 

@@ -28,16 +28,20 @@ class XtreamRepository(val client: XtreamClient) {
     suspend fun seriesCategories(force: Boolean = false): List<Category> =
         seriesCategories.takeUnless { force } ?: client.seriesCategories().also { seriesCategories = it }
 
-    suspend fun allMovies(force: Boolean = false): List<Movie> =
+    /** Cached catalog, if it has already been downloaded. */
+    fun hasCatalog(kind: String): Boolean =
+        if (kind == MediaKind.SERIES) allSeries != null else allMovies != null
+
+    suspend fun allMovies(force: Boolean = false, onProgress: ((Int) -> Unit)? = null): List<Movie> =
         allMovies.takeUnless { force } ?: loadAll(
-            whole = { client.movies(null) },
+            whole = { client.movies(null, onProgress) },
             categories = { vodCategories(force) },
             perCategory = { client.movies(it) },
         ).also { allMovies = it }
 
-    suspend fun allSeries(force: Boolean = false): List<Series> =
+    suspend fun allSeries(force: Boolean = false, onProgress: ((Int) -> Unit)? = null): List<Series> =
         allSeries.takeUnless { force } ?: loadAll(
-            whole = { client.series(null) },
+            whole = { client.series(null, onProgress) },
             categories = { seriesCategories(force) },
             perCategory = { client.series(it) },
         ).also { allSeries = it }
@@ -58,7 +62,15 @@ class XtreamRepository(val client: XtreamClient) {
         }
     }
 
-    suspend fun movieDetails(id: Int): MovieDetails = client.movieDetails(id)
+    suspend fun movieDetails(id: Int): MovieDetails =
+        client.movieDetails(id).also { detailsCache[id] = it }
+
+    /** Movie details for the info panel; remembered so moving back and forth is instant. */
+    suspend fun movieDetailsCached(id: Int): MovieDetails = detailsCache[id] ?: movieDetails(id)
+
+    private val detailsCache = object : LinkedHashMap<Int, MovieDetails>(64, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, MovieDetails>?) = size > 200
+    }
 
     suspend fun seriesDetails(id: Int): SeriesDetails = client.seriesDetails(id)
 

@@ -10,17 +10,20 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,10 +37,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -45,8 +51,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.forbiddenstreams.vod.AppContainer
 import com.forbiddenstreams.vod.appContainer
 import com.forbiddenstreams.vod.data.CategoryRow
+import com.forbiddenstreams.vod.data.ContentFilter
 import com.forbiddenstreams.vod.data.FavoriteItem
 import com.forbiddenstreams.vod.data.MediaKind
+import com.forbiddenstreams.vod.data.MovieDetails
 import com.forbiddenstreams.vod.data.PosterItem
 import com.forbiddenstreams.vod.data.ResumeEntry
 import com.forbiddenstreams.vod.ui.Brand
@@ -55,51 +63,125 @@ import com.forbiddenstreams.vod.ui.KeepWatchingRow
 import com.forbiddenstreams.vod.ui.Load
 import com.forbiddenstreams.vod.ui.LoadingBox
 import com.forbiddenstreams.vod.ui.MessageBox
+import com.forbiddenstreams.vod.ui.PivotScrolling
 import com.forbiddenstreams.vod.ui.PosterCard
 import com.forbiddenstreams.vod.ui.RowTitle
 import com.forbiddenstreams.vod.ui.ScreenHeader
 import com.forbiddenstreams.vod.ui.focusHighlight
+import com.forbiddenstreams.vod.ui.formatDuration
+import com.forbiddenstreams.vod.ui.formatTime
 import com.forbiddenstreams.vod.ui.loadCatching
 import com.forbiddenstreams.vod.ui.ratingBadge
+import com.forbiddenstreams.vod.ui.yearOf
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-private val PosterWidth = 140.dp
-private val PosterGap = 14.dp
+private val PosterWidth = 100.dp
+private val PosterGap = 12.dp
 private val SidePadding = 24.dp
 
-// ---- Movies / TV Series: Netflix-style category rows ----------------------------------------
+/** Where the focused poster settles vertically: just below its row title. */
+private val RowPivot = 40.dp
+
+// ---- Movies / TV Series: info panel + Netflix-style rows ------------------------------------
 
 class BrowseViewModel(private val container: AppContainer, private val kind: String) : ViewModel() {
+    private val rawRows = MutableStateFlow<Load<List<CategoryRow>>>(Load.Loading)
+    private val parental: Flow<Boolean> = container.store.parentalEnabled
+
+    /** Rows after parental filtering. */
     var rows by mutableStateOf<Load<List<CategoryRow>>>(Load.Loading)
         private set
 
     /** Id of the row currently expanded into a grid, if any. */
     var expandedRowId by mutableStateOf<String?>(null)
 
+    /** The focused poster, and extra details fetched for it (movies only). */
+    var focused by mutableStateOf<PosterItem?>(null)
+    var focusedResume by mutableStateOf<ResumeEntry?>(null)
+    var focusedDetails by mutableStateOf<MovieDetails?>(null)
+        private set
+
     /** Movies on the Movies screen, episodes on the TV Series screen. */
     val keepWatching: Flow<List<ResumeEntry>> = container.account?.id?.let { id ->
         val wanted = if (kind == MediaKind.MOVIE) MediaKind.MOVIE else MediaKind.EPISODE
-        container.store.resume(id).map { list -> list.filter { it.kind == wanted } }
-    } ?: emptyFlow()
+        combine(container.store.resume(id), parental) { list, hideAdult ->
+            list.filter { it.kind == wanted && !(hideAdult && ContentFilter.isAdultTitle(it.title)) }
+        }
+    } ?: flowOf(emptyList())
 
     init {
+        viewModelScope.launch {
+            combine(rawRows, parental) { r, hideAdult -> r to hideAdult }.collectLatest { (r, hideAdult) ->
+                rows = if (r is Load.Ready && hideAdult) {
+                    Load.Ready(withContext(Dispatchers.Default) { ContentFilter.filterRows(r.value) })
+                } else {
+                    r
+                }
+            }
+        }
+        // Fetch plot / runtime / backdrop for the focused movie once focus settles.
+        viewModelScope.launch {
+            snapshotFlow { focused }.collectLatest { item ->
+                focusedDetails = null
+                if (item == null || item.kind != MediaKind.MOVIE) return@collectLatest
+                delay(350)
+                focusedDetails = try {
+                    container.repository?.movieDetailsCached(item.id)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    null
+                }
+            }
+        }
         load()
     }
 
     fun load(force: Boolean = false) {
         val repo = container.repository ?: run {
-            rows = Load.Error("Not signed in")
+            rawRows.value = Load.Error("Not signed in")
             return
         }
-        rows = Load.Loading
+        rawRows.value = Load.Loading
         viewModelScope.launch {
-            rows = loadCatching("Couldn't load the catalog") {
+            rawRows.value = loadCatching("Couldn't load the catalog") {
                 if (kind == MediaKind.MOVIE) repo.movieRows(force) else repo.seriesRows(force)
             }
         }
+    }
+
+    /** Text for the info panel. */
+    fun info(): InfoData? {
+        focusedResume?.let { e ->
+            val stopped = "Stopped at ${formatTime(e.positionMs)}" +
+                if (e.durationMs > 0) " of ${formatTime(e.durationMs)}" else ""
+            val meta = listOfNotNull(e.subtitle, stopped).joinToString("  •  ")
+            return InfoData(e.title, meta, "Select to resume, start over or remove.", e.poster)
+        }
+        val item = focused ?: return null
+        val d = focusedDetails
+        val meta = listOfNotNull(
+            yearOf(d?.releaseDate ?: item.releaseDate),
+            formatDuration(d?.durationSecs),
+            (d?.genre ?: item.genre)?.takeIf { it.isNotBlank() },
+            ratingBadge(item.rating ?: d?.movie?.rating),
+        ).joinToString("  •  ")
+        return InfoData(
+            title = item.title,
+            meta = meta,
+            plot = d?.plot ?: item.plot,
+            image = d?.backdrop ?: item.backdrop ?: item.image,
+        )
     }
 }
 
@@ -108,6 +190,7 @@ fun BrowseScreen(
     kind: String,
     onBack: () -> Unit,
     onSearch: () -> Unit,
+    onSettings: () -> Unit,
     onOpen: (Int) -> Unit,
 ) {
     val container = LocalContext.current.appContainer()
@@ -130,6 +213,9 @@ fun BrowseScreen(
             IconButton(onClick = { vm.load(force = true) }, modifier = Modifier.focusHighlight(CircleShape)) {
                 Icon(Icons.Default.Refresh, contentDescription = "Refresh")
             }
+            IconButton(onClick = onSettings, modifier = Modifier.focusHighlight(CircleShape)) {
+                Icon(Icons.Default.Settings, contentDescription = "Settings")
+            }
         }
 
         when (val state = vm.rows) {
@@ -138,19 +224,28 @@ fun BrowseScreen(
             is Load.Ready -> {
                 if (state.value.isEmpty() && keepWatching.isEmpty()) {
                     MessageBox(
-                        if (kind == MediaKind.MOVIE) "Your provider has no movies." else "Your provider has no TV series.",
+                        if (kind == MediaKind.MOVIE) "No movies to show." else "No TV series to show.",
                         actionLabel = "Refresh",
                         onAction = { vm.load(force = true) },
                     )
                 } else {
-                    CatalogRows(
-                        rows = state.value,
-                        keepWatching = keepWatching,
-                        expandedRowId = vm.expandedRowId,
-                        onExpand = { vm.expandedRowId = it },
-                        onKeepWatching = { dialogEntry = it },
-                        onOpen = onOpen,
-                    )
+                    BoxWithConstraints(Modifier.fillMaxSize()) {
+                        val panelHeight = (maxHeight * 0.36f).coerceIn(130.dp, 260.dp)
+                        Column(Modifier.fillMaxSize()) {
+                            InfoPanel(
+                                data = vm.info(),
+                                placeholder = "Hold OK on a poster to expand its row.",
+                                modifier = Modifier.height(panelHeight),
+                            )
+                            CatalogRows(
+                                vm = vm,
+                                rows = state.value,
+                                keepWatching = keepWatching,
+                                onKeepWatching = { dialogEntry = it },
+                                onOpen = onOpen,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -161,20 +256,28 @@ fun BrowseScreen(
 
 @Composable
 private fun CatalogRows(
+    vm: BrowseViewModel,
     rows: List<CategoryRow>,
     keepWatching: List<ResumeEntry>,
-    expandedRowId: String?,
-    onExpand: (String?) -> Unit,
     onKeepWatching: (ResumeEntry) -> Unit,
     onOpen: (Int) -> Unit,
 ) {
     val listState = rememberLazyListState()
-    val leadingItems = if (keepWatching.isNotEmpty()) 2 else 1 // hint (+ keep watching)
+    // Each row keeps its sideways position while it scrolls off screen and back.
+    val rowStates = remember(rows) { HashMap<String, LazyListState>() }
+    val firstFocus = remember { FocusRequester() }
+    val expandedRowId = vm.expandedRowId
+    val leadingItems = if (keepWatching.isNotEmpty()) 1 else 0
+
+    // Put D-pad focus on the first poster so the info panel and remote work right away.
+    LaunchedEffect(Unit) {
+        delay(50)
+        runCatching { firstFocus.requestFocus() }
+    }
 
     // Back closes an expanded row before leaving the screen.
-    BackHandler(enabled = expandedRowId != null) { onExpand(null) }
+    BackHandler(enabled = expandedRowId != null) { vm.expandedRowId = null }
 
-    // Bring the expanded row's title to the top.
     LaunchedEffect(expandedRowId) {
         val index = rows.indexOfFirst { it.id == expandedRowId }
         if (index >= 0) listState.animateScrollToItem(leadingItems + index)
@@ -183,60 +286,85 @@ private fun CatalogRows(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val columns = (((maxWidth - SidePadding * 2) + PosterGap) / (PosterWidth + PosterGap)).toInt().coerceAtLeast(2)
 
-        LazyColumn(
-            state = listState,
-            contentPadding = PaddingValues(bottom = 40.dp),
-            modifier = Modifier.fillMaxSize(),
-        ) {
-            item(key = "hint") {
-                Text(
-                    "Tip: hold OK on a poster to expand its row",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = SidePadding),
-                )
-            }
-            if (keepWatching.isNotEmpty()) {
-                item(key = "keep_watching") {
-                    KeepWatchingRow(keepWatching, PosterWidth, onSelect = onKeepWatching)
-                }
-            }
-
-            rows.forEachIndexed { rowIndex, row ->
-                if (row.id == expandedRowId) {
-                    item(key = "row_${rowIndex}_header") {
-                        Row(
-                            Modifier.fillMaxWidth().padding(end = SidePadding),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            RowTitle("${row.name}  ·  ${row.items.size}", Modifier.weight(1f))
-                            TextButton(onClick = { onExpand(null) }, modifier = Modifier.padding(top = 14.dp)) {
-                                Text("Collapse", color = Brand.GlowGreen)
-                            }
+        PivotScrolling(pivot = RowPivot) {
+            LazyColumn(
+                state = listState,
+                // Room at the end so the last rows can also scroll up to the pivot.
+                contentPadding = PaddingValues(bottom = maxHeight),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                if (keepWatching.isNotEmpty()) {
+                    item(key = "keep_watching") {
+                        PivotScrolling(pivot = SidePadding) {
+                            KeepWatchingRow(
+                                entries = keepWatching,
+                                posterWidth = PosterWidth,
+                                showTitles = false,
+                                firstItemFocus = firstFocus,
+                                onFocused = { e ->
+                                    vm.focusedResume = e
+                                    vm.focused = null
+                                },
+                                onSelect = onKeepWatching,
+                            )
                         }
                     }
-                    row.items.chunked(columns).forEachIndexed { chunkIndex, chunk ->
-                        item(key = "row_${rowIndex}_grid_$chunkIndex") {
+                }
+
+                rows.forEachIndexed { rowIndex, row ->
+                    val takesFirstFocus = keepWatching.isEmpty() && rowIndex == 0
+                    if (row.id == expandedRowId) {
+                        item(key = "row_${rowIndex}_header") {
                             Row(
-                                Modifier.padding(horizontal = SidePadding, vertical = PosterGap / 2),
-                                horizontalArrangement = Arrangement.spacedBy(PosterGap),
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(end = SidePadding),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                chunk.forEach { poster ->
-                                    Poster(poster, onOpen, onLongClick = { onExpand(null) })
+                                RowTitle("${row.name}  ·  ${row.items.size}", Modifier.weight(1f))
+                                TextButton(onClick = { vm.expandedRowId = null }, modifier = Modifier.padding(top = 14.dp)) {
+                                    Text("Collapse", color = Brand.GlowGreen)
                                 }
                             }
                         }
-                    }
-                } else {
-                    item(key = "row_$rowIndex") {
-                        Column {
-                            RowTitle(row.name)
-                            LazyRow(
-                                contentPadding = PaddingValues(horizontal = SidePadding, vertical = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(PosterGap),
-                            ) {
-                                items(row.items) { poster ->
-                                    Poster(poster, onOpen, onLongClick = { onExpand(row.id) })
+                        row.items.chunked(columns).forEachIndexed { chunkIndex, chunk ->
+                            item(key = "row_${rowIndex}_grid_$chunkIndex") {
+                                Row(
+                                    Modifier.padding(horizontal = SidePadding, vertical = PosterGap / 2),
+                                    horizontalArrangement = Arrangement.spacedBy(PosterGap),
+                                ) {
+                                    chunk.forEachIndexed { i, poster ->
+                                        Poster(
+                                            item = poster,
+                                            vm = vm,
+                                            onOpen = onOpen,
+                                            onLongClick = { vm.expandedRowId = null },
+                                            focusRequester = if (takesFirstFocus && chunkIndex == 0 && i == 0) firstFocus else null,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        item(key = "row_$rowIndex") {
+                            Column {
+                                RowTitle(row.name)
+                                PivotScrolling(pivot = SidePadding) {
+                                    LazyRow(
+                                        state = rowStates.getOrPut(row.id) { LazyListState() },
+                                        contentPadding = PaddingValues(horizontal = SidePadding, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(PosterGap),
+                                    ) {
+                                        itemsIndexed(row.items) { i, poster ->
+                                            Poster(
+                                                item = poster,
+                                                vm = vm,
+                                                onOpen = onOpen,
+                                                onLongClick = { vm.expandedRowId = row.id },
+                                                focusRequester = if (takesFirstFocus && i == 0) firstFocus else null,
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -248,12 +376,25 @@ private fun CatalogRows(
 }
 
 @Composable
-private fun Poster(item: PosterItem, onOpen: (Int) -> Unit, onLongClick: () -> Unit) {
+private fun Poster(
+    item: PosterItem,
+    vm: BrowseViewModel,
+    onOpen: (Int) -> Unit,
+    onLongClick: () -> Unit,
+    focusRequester: FocusRequester?,
+    width: Dp = PosterWidth,
+) {
     PosterCard(
         title = item.title,
         image = item.image,
-        badge = ratingBadge(item.rating),
-        modifier = Modifier.width(PosterWidth),
+        showTitle = false,
+        onFocused = {
+            vm.focused = item
+            vm.focusedResume = null
+        },
+        modifier = Modifier
+            .width(width)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
         onLongClick = onLongClick,
         onClick = { onOpen(item.id) },
     )
@@ -263,8 +404,19 @@ private fun Poster(item: PosterItem, onOpen: (Int) -> Unit, onLongClick: () -> U
 
 class MyListViewModel(container: AppContainer) : ViewModel() {
     private val accountId = container.account?.id
-    val favorites: Flow<List<FavoriteItem>> = accountId?.let(container.store::favorites) ?: emptyFlow()
-    val resume: Flow<List<ResumeEntry>> = accountId?.let(container.store::resume) ?: emptyFlow()
+    private val parental = container.store.parentalEnabled
+
+    val favorites: Flow<List<FavoriteItem>> = accountId?.let { id ->
+        combine(container.store.favorites(id), parental) { list, hide ->
+            if (hide) list.filterNot { ContentFilter.isAdultTitle(it.name) } else list
+        }
+    } ?: emptyFlow()
+
+    val resume: Flow<List<ResumeEntry>> = accountId?.let { id ->
+        combine(container.store.resume(id), parental) { list, hide ->
+            if (hide) list.filterNot { ContentFilter.isAdultTitle(it.title) } else list
+        }
+    } ?: emptyFlow()
 }
 
 @Composable
@@ -288,30 +440,34 @@ fun MyListScreen(onBack: () -> Unit, onOpenMovie: (Int) -> Unit, onOpenSeries: (
         } else {
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val columns = (((maxWidth - SidePadding * 2) + PosterGap) / (PosterWidth + PosterGap)).toInt().coerceAtLeast(2)
-                LazyColumn(contentPadding = PaddingValues(bottom = 40.dp), modifier = Modifier.fillMaxSize()) {
-                    if (resume.isNotEmpty()) {
-                        item(key = "keep_watching") {
-                            KeepWatchingRow(resume, PosterWidth, onSelect = { dialogEntry = it })
+                PivotScrolling(pivot = RowPivot) {
+                    LazyColumn(contentPadding = PaddingValues(bottom = 40.dp), modifier = Modifier.fillMaxSize()) {
+                        if (resume.isNotEmpty()) {
+                            item(key = "keep_watching") {
+                                PivotScrolling(pivot = SidePadding) {
+                                    KeepWatchingRow(resume, PosterWidth, onSelect = { dialogEntry = it })
+                                }
+                            }
                         }
-                    }
-                    if (favorites.isNotEmpty()) {
-                        item(key = "favorites_title") { RowTitle("Favorites") }
-                        favorites.chunked(columns).forEachIndexed { i, chunk ->
-                            item(key = "favorites_$i") {
-                                Row(
-                                    Modifier.padding(horizontal = SidePadding, vertical = PosterGap / 2),
-                                    horizontalArrangement = Arrangement.spacedBy(PosterGap),
-                                ) {
-                                    chunk.forEach { fav ->
-                                        PosterCard(
-                                            title = fav.name,
-                                            image = fav.poster,
-                                            badge = if (fav.kind == MediaKind.SERIES) "Series" else null,
-                                            modifier = Modifier.width(PosterWidth),
-                                            onClick = {
-                                                if (fav.kind == MediaKind.SERIES) onOpenSeries(fav.id) else onOpenMovie(fav.id)
-                                            },
-                                        )
+                        if (favorites.isNotEmpty()) {
+                            item(key = "favorites_title") { RowTitle("Favorites") }
+                            favorites.chunked(columns).forEachIndexed { i, chunk ->
+                                item(key = "favorites_$i") {
+                                    Row(
+                                        Modifier.padding(horizontal = SidePadding, vertical = PosterGap / 2),
+                                        horizontalArrangement = Arrangement.spacedBy(PosterGap),
+                                    ) {
+                                        chunk.forEach { fav ->
+                                            PosterCard(
+                                                title = fav.name,
+                                                image = fav.poster,
+                                                badge = if (fav.kind == MediaKind.SERIES) "Series" else null,
+                                                modifier = Modifier.width(PosterWidth),
+                                                onClick = {
+                                                    if (fav.kind == MediaKind.SERIES) onOpenSeries(fav.id) else onOpenMovie(fav.id)
+                                                },
+                                            )
+                                        }
                                     }
                                 }
                             }

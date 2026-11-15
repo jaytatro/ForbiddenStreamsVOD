@@ -46,6 +46,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.forbiddenstreams.vod.AppContainer
 import com.forbiddenstreams.vod.appContainer
+import com.forbiddenstreams.vod.data.ContentFilter
 import com.forbiddenstreams.vod.data.MediaKind
 import com.forbiddenstreams.vod.data.PosterItem
 import com.forbiddenstreams.vod.data.toPoster
@@ -82,18 +83,22 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
     var results by mutableStateOf(SearchResults("", emptyList(), emptyList()))
         private set
 
+    /** Parental controls: hide 18+ results. */
+    private var hideAdult by mutableStateOf(false)
+
     init {
         load()
+        viewModelScope.launch { container.store.parentalEnabled.collect { hideAdult = it } }
         // Re-run the search as the user types (debounced) and when the catalog arrives.
         viewModelScope.launch {
-            snapshotFlow { query.trim() to (catalog as? Load.Ready<SearchCatalog>)?.value }
-                .collectLatest { (q, cat) ->
+            snapshotFlow { Triple(query.trim(), (catalog as? Load.Ready<SearchCatalog>)?.value, hideAdult) }
+                .collectLatest { (q, cat, hide) ->
                     if (cat == null || q.isEmpty()) {
                         results = SearchResults(q, emptyList(), emptyList())
                         return@collectLatest
                     }
                     delay(200)
-                    results = withContext(Dispatchers.Default) { search(cat, q) }
+                    results = withContext(Dispatchers.Default) { search(cat, q, hide) }
                 }
         }
     }
@@ -122,11 +127,12 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    private fun search(cat: SearchCatalog, raw: String): SearchResults {
+    private fun search(cat: SearchCatalog, raw: String, hideAdult: Boolean): SearchResults {
         val q = normalize(raw)
         if (q.isEmpty()) return SearchResults(raw, emptyList(), emptyList())
         fun rank(list: List<SearchCatalog.Entry>): List<PosterItem> =
             list.asSequence()
+                .filterNot { hideAdult && ContentFilter.isAdult(it.poster) }
                 .mapNotNull { e ->
                     val i = e.key.indexOf(q)
                     when {

@@ -3,6 +3,7 @@ package com.forbiddenstreams.vod.data
 import android.util.JsonReader
 import android.util.JsonToken
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -34,6 +35,8 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
         ?: throw XtreamException("Invalid server URL")
 
     companion object {
+        private const val PROGRESS_EVERY = 250
+
         /** Accepts "host:port", "http://host:port/", or a pasted player_api.php / get.php link. */
         fun normalizeServer(raw: String): String {
             var s = raw.trim()
@@ -70,13 +73,16 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
     suspend fun seriesCategories(): List<Category> =
         api("get_series_categories").list().mapNotNull { it.obj()?.toCategory() }
 
-    /** Movies in one category, or the whole catalog when [categoryId] is null. */
-    suspend fun movies(categoryId: String? = null): List<Movie> =
-        streamList("get_vod_streams", *categoryParam(categoryId)) { it.toMovie() }
+    /**
+     * Movies in one category, or the whole catalog when [categoryId] is null.
+     * [onProgress] receives the running count of titles read so far.
+     */
+    suspend fun movies(categoryId: String? = null, onProgress: ((Int) -> Unit)? = null): List<Movie> =
+        streamList("get_vod_streams", *categoryParam(categoryId), onProgress = onProgress) { it.toMovie() }
 
     /** Series in one category, or the whole catalog when [categoryId] is null. */
-    suspend fun series(categoryId: String? = null): List<Series> =
-        streamList("get_series", *categoryParam(categoryId)) { it.toSeries() }
+    suspend fun series(categoryId: String? = null, onProgress: ((Int) -> Unit)? = null): List<Series> =
+        streamList("get_series", *categoryParam(categoryId), onProgress = onProgress) { it.toSeries() }
 
     private fun categoryParam(categoryId: String?): Array<Pair<String, String>> =
         if (categoryId == null) emptyArray() else arrayOf("category_id" to categoryId)
@@ -173,8 +179,17 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
     private suspend fun <T> streamList(
         action: String,
         vararg params: Pair<String, String>,
+        onProgress: ((Int) -> Unit)? = null,
         map: (JsonObject) -> T?,
     ): List<T> = withContext(Dispatchers.IO) {
+        fun add(out: ArrayList<T>, item: T?) {
+            if (item == null) return
+            out += item
+            if (out.size % PROGRESS_EVERY == 0) {
+                ensureActive() // stop reading if the user cancelled
+                onProgress?.invoke(out.size)
+            }
+        }
         val request = Request.Builder().url(apiUrl(action, *params)).header("User-Agent", USER_AGENT).build()
         try {
             http.newCall(request).execute().use { response ->
@@ -192,7 +207,7 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
                             JsonToken.BEGIN_ARRAY -> {
                                 reader.beginArray()
                                 while (reader.hasNext()) {
-                                    (readElement(reader) as? JsonObject)?.let(map)?.let(out::add)
+                                    add(out, (readElement(reader) as? JsonObject)?.let(map))
                                 }
                                 reader.endArray()
                             }
@@ -200,7 +215,7 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
                                 reader.beginObject()
                                 while (reader.hasNext()) {
                                     reader.nextName()
-                                    (readElement(reader) as? JsonObject)?.let(map)?.let(out::add)
+                                    add(out, (readElement(reader) as? JsonObject)?.let(map))
                                 }
                                 reader.endObject()
                             }
@@ -214,6 +229,7 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
                     // Malformed JSON (e.g. an HTML error page) or the connection dropped mid-list.
                     throw XtreamException("The server sent an incomplete or invalid catalog. Please try again.", e)
                 }
+                onProgress?.invoke(out.size)
                 out
             }
         } catch (e: XtreamException) {
@@ -305,6 +321,7 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
             extension = str("container_extension") ?: "mp4",
             categoryId = str("category_id"),
             added = long("added"),
+            adult = flag("is_adult"),
         )
     }
 
@@ -322,6 +339,7 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
             cast = str("cast"),
             backdrop = firstString("backdrop_path"),
             added = long("last_modified"),
+            adult = flag("is_adult"),
         )
     }
 
@@ -359,6 +377,9 @@ internal fun JsonObject.str(key: String): String? {
 
 internal fun JsonObject.int(key: String): Int? =
     str(key)?.let { it.toIntOrNull() ?: it.toDoubleOrNull()?.toInt() }
+
+internal fun JsonObject.flag(key: String): Boolean =
+    str(key)?.lowercase()?.let { it == "1" || it == "true" } ?: false
 
 internal fun JsonObject.long(key: String): Long? =
     str(key)?.let { it.toLongOrNull() ?: it.toDoubleOrNull()?.toLong() }

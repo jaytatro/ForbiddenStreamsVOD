@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
                                 kind = kind,
                                 onBack = back,
                                 onSearch = { nav.navigate("search") },
+                                onSettings = { nav.navigate("settings") },
                                 onOpen = if (kind == MediaKind.SERIES) openSeries else openMovie,
                             )
                         }

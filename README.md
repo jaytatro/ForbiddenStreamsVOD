@@ -12,6 +12,10 @@ An Android TV app (also runs on phones and tablets) for watching **movies and se
 
 - **Sign in** with an Xtream Codes server, username and password. You stay signed in on the device.
 - **Home screen** with two big poster buttons, **Movies** and **TV Series**, plus My List and Settings.
+- **Download before browsing**: choosing Movies or TV Series downloads that catalog first, with a live title count, so the screen opens ready.
+- **Info panel** at the top shows the focused title's name, year, runtime, genre, rating, plot and backdrop.
+- **Smooth TV scrolling**: the focused poster glides to a fixed spot; rows remember their position.
+- **Parental controls**: set a 4-digit PIN in Settings to hide anything marked 18+ / XXX (and adult categories) everywhere.
 - **Netflix-style Movies and TV Series screens**: every provider category is its own sideways-scrolling row, with *Recently added* first. Hold OK (or long-press) on a poster to expand its row into a full grid; Back collapses it.
 - **Keep watching** row at the top of each screen. Selecting an item opens Resume / Start over / Remove.
 - **Search**: the Search button opens a search screen; movies and TV series fill in as you type.

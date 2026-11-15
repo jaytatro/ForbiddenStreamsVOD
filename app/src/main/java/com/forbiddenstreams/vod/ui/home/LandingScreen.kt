@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import com.forbiddenstreams.vod.R
 import com.forbiddenstreams.vod.appContainer
+import com.forbiddenstreams.vod.data.MediaKind
 import com.forbiddenstreams.vod.ui.Brand
 import com.forbiddenstreams.vod.ui.focusHighlight
 import kotlinx.coroutines.CancellationException
@@ -78,6 +79,8 @@ fun LandingScreen(
     val container = LocalContext.current.appContainer()
     val moviesFocus = remember { FocusRequester() }
     var crashReport by remember { mutableStateOf(container.takeCrashReport()) }
+    // Which catalog is being downloaded before opening its screen.
+    var downloading by remember { mutableStateOf<String?>(null) }
 
     // Quiet background check so the Settings button can show an "update" badge.
     LaunchedEffect(Unit) {
@@ -124,7 +127,7 @@ fun LandingScreen(
                             .width(cardWidth)
                             .height(cardWidth * 1.5f)
                             .focusRequester(moviesFocus),
-                        onClick = onMovies,
+                        onClick = { downloading = MediaKind.MOVIE },
                     )
                     BigPosterButton(
                         art = R.drawable.poster_series,
@@ -132,7 +135,7 @@ fun LandingScreen(
                         modifier = Modifier
                             .width(cardWidth)
                             .height(cardWidth * 1.5f),
-                        onClick = onSeries,
+                        onClick = { downloading = MediaKind.SERIES },
                     )
                 }
             }
@@ -140,6 +143,17 @@ fun LandingScreen(
     }
 
     crashReport?.let { report -> CrashReportDialog(report, onDismiss = { crashReport = null }) }
+
+    downloading?.let { kind ->
+        CatalogDownloadDialog(
+            kind = kind,
+            onReady = {
+                downloading = null
+                if (kind == MediaKind.SERIES) onSeries() else onMovies()
+            },
+            onCancel = { downloading = null },
+        )
+    }
 }
 
 @Composable

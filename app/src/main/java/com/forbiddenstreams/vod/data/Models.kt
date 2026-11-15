@@ -38,6 +38,8 @@ data class Movie(
     val categoryId: String?,
     /** When the provider added it (epoch seconds), used for the "Recently added" row. */
     val added: Long? = null,
+    /** Provider's own adult flag (is_adult). */
+    val adult: Boolean = false,
 )
 
 data class MovieDetails(
@@ -64,6 +66,7 @@ data class Series(
     val backdrop: String?,
     /** Last update (epoch seconds), used for the "Recently added" row. */
     val added: Long? = null,
+    val adult: Boolean = false,
 )
 
 data class Episode(
@@ -83,13 +86,18 @@ data class SeriesDetails(
     val seasons: Map<Int, List<Episode>>,
 )
 
-/** Common shape for anything shown as a poster in a grid. */
+/** Common shape for anything shown as a poster. Extra fields feed the info panel. */
 data class PosterItem(
     val kind: String,
     val id: Int,
     val title: String,
     val image: String?,
     val rating: String?,
+    val plot: String? = null,
+    val genre: String? = null,
+    val releaseDate: String? = null,
+    val backdrop: String? = null,
+    val adult: Boolean = false,
 )
 
 /** One Netflix-style row on the Movies / TV Series screens. */
@@ -99,8 +107,20 @@ data class CategoryRow(
     val items: List<PosterItem>,
 )
 
-fun Movie.toPoster() = PosterItem(MediaKind.MOVIE, streamId, name, poster, rating)
-fun Series.toPoster() = PosterItem(MediaKind.SERIES, seriesId, name, cover, rating)
+fun Movie.toPoster() = PosterItem(MediaKind.MOVIE, streamId, name, poster, rating, adult = adult)
+
+fun Series.toPoster() = PosterItem(
+    kind = MediaKind.SERIES,
+    id = seriesId,
+    title = name,
+    image = cover,
+    rating = rating,
+    plot = plot,
+    genre = genre,
+    releaseDate = releaseDate,
+    backdrop = backdrop,
+    adult = adult,
+)
 
 @Serializable
 data class FavoriteItem(
