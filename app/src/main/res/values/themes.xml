@@ -10,5 +10,11 @@
     <style name="Theme.ForbiddenStreams.Player">
         <item name="android:windowBackground">@android:color/black</item>
         <item name="android:windowFullscreen">true</item>
+        <!-- Player buttons and settings menus turn green when selected -->
+        <item name="android:selectableItemBackground">@drawable/player_focus_background</item>
+        <item name="android:selectableItemBackgroundBorderless">@drawable/player_focus_background</item>
+        <item name="android:colorControlHighlight">#806CCD4E</item>
+        <item name="android:colorControlActivated">#FF90E15D</item>
+        <item name="android:colorAccent">#FF90E15D</item>
     </style>
 </resources>

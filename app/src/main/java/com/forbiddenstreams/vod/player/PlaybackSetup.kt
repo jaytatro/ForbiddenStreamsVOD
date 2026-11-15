@@ -2,6 +2,8 @@ package com.forbiddenstreams.vod.player
 
 import android.content.Context
 import android.media.MediaCodecInfo.CodecProfileLevel
+import android.media.MediaFormat
+import android.os.Build
 import android.os.Handler
 import androidx.annotation.OptIn
 import androidx.media3.common.Format
@@ -100,6 +102,33 @@ private class DolbyVisionFallbackRenderer(
             if (hevc.isNotEmpty()) return hevc
         }
         return super.getDecoderInfos(mediaCodecSelector, format, requiresSecureDecoder)
+    }
+
+    /**
+     * When Dolby Vision is sent to the HEVC decoder, don't pass the Dolby Vision profile
+     * along: some HEVC decoders refuse to start with it. Ask for plain HEVC Main 10 instead.
+     */
+    override fun getMediaFormat(
+        format: Format,
+        codecMimeType: String,
+        codecMaxValues: CodecMaxValues,
+        codecOperatingRate: Float,
+        deviceNeedsNoPostProcessWorkaround: Boolean,
+        tunnelingAudioSessionId: Int,
+    ): MediaFormat {
+        val mediaFormat = super.getMediaFormat(
+            format,
+            codecMimeType,
+            codecMaxValues,
+            codecOperatingRate,
+            deviceNeedsNoPostProcessWorkaround,
+            tunnelingAudioSessionId,
+        )
+        if (format.sampleMimeType == MimeTypes.VIDEO_DOLBY_VISION && codecMimeType == MimeTypes.VIDEO_H265) {
+            mediaFormat.setInteger(MediaFormat.KEY_PROFILE, CodecProfileLevel.HEVCProfileMain10)
+            if (Build.VERSION.SDK_INT >= 29) mediaFormat.removeKey(MediaFormat.KEY_LEVEL)
+        }
+        return mediaFormat
     }
 
     private fun useHevcFor(selector: MediaCodecSelector, format: Format, secure: Boolean): Boolean {
