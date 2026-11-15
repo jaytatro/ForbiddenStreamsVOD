@@ -1,8 +1,8 @@
 package com.forbiddenstreams.vod.ui
 
 import androidx.compose.animation.core.AnimationSpec
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
@@ -27,9 +27,11 @@ fun PivotScrolling(pivot: Dp, content: @Composable () -> Unit) {
 
 @OptIn(ExperimentalFoundationApi::class)
 private class PivotBringIntoViewSpec(private val pivotPx: Float) : BringIntoViewSpec {
+    // A critically damped spring: when the remote is pressed again mid-scroll the animation
+    // re-targets and keeps its speed instead of restarting, so held / rapid presses glide.
     @Suppress("OVERRIDE_DEPRECATION")
     override val scrollAnimationSpec: AnimationSpec<Float> =
-        tween(durationMillis = 260, easing = FastOutSlowInEasing)
+        spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = 260f)
 
     override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
         offset - pivotPx

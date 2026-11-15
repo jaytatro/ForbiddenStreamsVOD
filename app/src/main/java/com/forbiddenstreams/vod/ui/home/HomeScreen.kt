@@ -3,6 +3,7 @@ package com.forbiddenstreams.vod.ui.home
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -11,8 +12,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -30,6 +33,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -95,6 +99,9 @@ private val PosterWidth = 100.dp
 private val PosterGap = 12.dp
 private val SidePadding = 24.dp
 
+/** Space taken by the floating top bar. */
+private val HeaderHeight = 72.dp
+
 /** Where the focused poster settles vertically: just below its row title. */
 private val RowPivot = 50.dp
 
@@ -123,6 +130,13 @@ class BrowseViewModel(private val container: AppContainer, private val kind: Str
     var focusedDetails by mutableStateOf<MovieDetails?>(null)
         private set
 
+    /**
+     * What the info panel shows. Updated only once focus settles, so holding the remote
+     * doesn't reload backdrop art for every poster passed (that work made scrolling stutter).
+     */
+    var shownInfo by mutableStateOf<InfoData?>(null)
+        private set
+
     /** Movies on the Movies screen, episodes on the TV Series screen. */
     val keepWatching: Flow<List<ResumeEntry>> = container.account?.id?.let { id ->
         val wanted = if (kind == MediaKind.MOVIE) MediaKind.MOVIE else MediaKind.EPISODE
@@ -139,6 +153,12 @@ class BrowseViewModel(private val container: AppContainer, private val kind: Str
                 } else {
                     r
                 }
+            }
+        }
+        viewModelScope.launch {
+            snapshotFlow { info() }.collectLatest { next ->
+                if (shownInfo != null) delay(220)
+                shownInfo = next
             }
         }
         // Fetch plot / runtime / backdrop for the focused movie once focus settles.
@@ -210,26 +230,11 @@ fun BrowseScreen(
     val keepWatching by vm.keepWatching.collectAsState(initial = emptyList())
     var dialogEntry by remember { mutableStateOf<ResumeEntry?>(null) }
 
-    Column(
+    Box(
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .systemBarsPadding(),
+            .background(MaterialTheme.colorScheme.background),
     ) {
-        ScreenHeader(if (kind == MediaKind.MOVIE) "Movies" else "TV Series", onBack = onBack) {
-            OutlinedButton(onClick = onSearch, modifier = Modifier.focusHighlight(CircleShape)) {
-                Icon(Icons.Default.Search, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Search")
-            }
-            IconButton(onClick = { vm.load(force = true) }, modifier = Modifier.focusHighlight(CircleShape)) {
-                Icon(Icons.Default.Refresh, contentDescription = "Refresh")
-            }
-            IconButton(onClick = onSettings, modifier = Modifier.focusHighlight(CircleShape)) {
-                Icon(Icons.Default.Settings, contentDescription = "Settings")
-            }
-        }
-
         when (val state = vm.rows) {
             Load.Loading -> LoadingBox()
             is Load.Error -> MessageBox(state.message, actionLabel = "Retry", onAction = { vm.load(force = true) })
@@ -242,9 +247,11 @@ fun BrowseScreen(
                     )
                 } else {
                     Column(Modifier.fillMaxSize()) {
+                        // The art runs up behind the transparent top bar.
                         InfoPanel(
-                            data = vm.info(),
+                            data = vm.shownInfo,
                             placeholder = "Hold OK on a poster to see its whole category.",
+                            topInset = HeaderHeight,
                             modifier = Modifier.weight(1f),
                         )
                         CatalogRows(
@@ -253,10 +260,38 @@ fun BrowseScreen(
                             keepWatching = keepWatching,
                             onKeepWatching = { dialogEntry = it },
                             onOpen = onOpen,
-                            modifier = Modifier.height(RowAreaHeight),
+                            modifier = Modifier
+                                .height(RowAreaHeight)
+                                .navigationBarsPadding(),
                         )
                     }
                 }
+            }
+        }
+
+        // Transparent top bar floating over the info panel.
+        ScreenHeader(
+            if (kind == MediaKind.MOVIE) "Movies" else "TV Series",
+            onBack = onBack,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .statusBarsPadding(),
+        ) {
+            OutlinedButton(onClick = onSearch, modifier = Modifier.focusHighlight(CircleShape)) {
+                Icon(Icons.Default.Search, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Search")
+            }
+            val green = IconButtonDefaults.iconButtonColors(contentColor = Brand.ToxicGreen)
+            IconButton(
+                onClick = { vm.load(force = true) },
+                colors = green,
+                modifier = Modifier.focusHighlight(CircleShape),
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+            }
+            IconButton(onClick = onSettings, colors = green, modifier = Modifier.focusHighlight(CircleShape)) {
+                Icon(Icons.Default.Settings, contentDescription = "Settings")
             }
         }
     }

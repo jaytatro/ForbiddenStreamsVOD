@@ -67,20 +67,21 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.Normalizer
 
-/** Everything searchable, pre-normalized once so typing stays fast. */
-class SearchCatalog(val movies: List<Entry>, val series: List<Entry>) {
+/** Everything searchable on this screen, pre-normalized once so typing stays fast. */
+class SearchCatalog(val entries: List<Entry>) {
     class Entry(val poster: PosterItem, val key: String)
 }
 
-data class SearchResults(val query: String, val movies: List<PosterItem>, val series: List<PosterItem>) {
-    val isEmpty get() = movies.isEmpty() && series.isEmpty()
+data class SearchResults(val query: String, val items: List<PosterItem>) {
+    val isEmpty get() = items.isEmpty()
 }
 
-class SearchViewModel(private val container: AppContainer) : ViewModel() {
+/** Searches only movies or only TV series, matching the screen it was opened from. */
+class SearchViewModel(private val container: AppContainer, private val kind: String) : ViewModel() {
     var query by mutableStateOf("")
     var catalog by mutableStateOf<Load<SearchCatalog>>(Load.Loading)
         private set
-    var results by mutableStateOf(SearchResults("", emptyList(), emptyList()))
+    var results by mutableStateOf(SearchResults("", emptyList()))
         private set
 
     /** Parental controls: hide 18+ results. */
@@ -94,7 +95,7 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
             snapshotFlow { Triple(query.trim(), (catalog as? Load.Ready<SearchCatalog>)?.value, hideAdult) }
                 .collectLatest { (q, cat, hide) ->
                     if (cat == null || q.isEmpty()) {
-                        results = SearchResults(q, emptyList(), emptyList())
+                        results = SearchResults(q, emptyList())
                         return@collectLatest
                     }
                     delay(200)
@@ -111,17 +112,17 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
         catalog = Load.Loading
         viewModelScope.launch {
             catalog = loadCatching("Couldn't load the catalog") {
-                // Both catalogs are cached after the Movies / TV Series screens load them.
-                val (m, s) = coroutineScope {
-                    val movies = async { repo.allMovies() }
-                    val series = async { repo.allSeries() }
-                    movies.await() to series.await()
-                }
-                withContext(Dispatchers.Default) {
-                    SearchCatalog(
-                        movies = m.distinctBy { it.streamId }.map { SearchCatalog.Entry(it.toPoster(), normalize(it.name)) },
-                        series = s.distinctBy { it.seriesId }.map { SearchCatalog.Entry(it.toPoster(), normalize(it.name)) },
-                    )
+                // Already cached from the Movies / TV Series screen.
+                if (kind == MediaKind.SERIES) {
+                    val series = repo.allSeries()
+                    withContext(Dispatchers.Default) {
+                        SearchCatalog(series.distinctBy { it.seriesId }.map { SearchCatalog.Entry(it.toPoster(), normalize(it.name)) })
+                    }
+                } else {
+                    val movies = repo.allMovies()
+                    withContext(Dispatchers.Default) {
+                        SearchCatalog(movies.distinctBy { it.streamId }.map { SearchCatalog.Entry(it.toPoster(), normalize(it.name)) })
+                    }
                 }
             }
         }
@@ -129,7 +130,7 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
 
     private fun search(cat: SearchCatalog, raw: String, hideAdult: Boolean): SearchResults {
         val q = normalize(raw)
-        if (q.isEmpty()) return SearchResults(raw, emptyList(), emptyList())
+        if (q.isEmpty()) return SearchResults(raw, emptyList())
         fun rank(list: List<SearchCatalog.Entry>): List<PosterItem> =
             list.asSequence()
                 .filterNot { hideAdult && ContentFilter.isAdult(it.poster) }
@@ -146,7 +147,7 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
                 .take(MAX_RESULTS)
                 .map { it.second.poster }
                 .toList()
-        return SearchResults(raw, rank(cat.movies), rank(cat.series))
+        return SearchResults(raw, rank(cat.entries))
     }
 
     private companion object {
@@ -166,9 +167,10 @@ class SearchViewModel(private val container: AppContainer) : ViewModel() {
 }
 
 @Composable
-fun SearchScreen(onBack: () -> Unit, onOpenMovie: (Int) -> Unit, onOpenSeries: (Int) -> Unit) {
+fun SearchScreen(kind: String, onBack: () -> Unit, onOpen: (Int) -> Unit) {
     val container = LocalContext.current.appContainer()
-    val vm: SearchViewModel = viewModel { SearchViewModel(container) }
+    val vm: SearchViewModel = viewModel(key = "search_$kind") { SearchViewModel(container, kind) }
+    val what = if (kind == MediaKind.SERIES) "TV series" else "movies"
     val fieldFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     LaunchedEffect(Unit) { runCatching { fieldFocus.requestFocus() } }
@@ -190,7 +192,7 @@ fun SearchScreen(onBack: () -> Unit, onOpenMovie: (Int) -> Unit, onOpenSeries: (
                 value = vm.query,
                 onValueChange = { vm.query = it },
                 singleLine = true,
-                placeholder = { Text("Search movies and TV series") },
+                placeholder = { Text("Search $what") },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
                 trailingIcon = {
                     if (vm.query.isNotEmpty()) {
@@ -219,10 +221,10 @@ fun SearchScreen(onBack: () -> Unit, onOpenMovie: (Int) -> Unit, onOpenSeries: (
             is Load.Ready -> {
                 val results = vm.results
                 when {
-                    vm.query.isBlank() -> MessageBox("Start typing to search movies and TV series.")
+                    vm.query.isBlank() -> MessageBox("Start typing to search $what.")
                     results.isEmpty && results.query == vm.query.trim() ->
-                        MessageBox("No movies or TV series match \"${vm.query.trim()}\".")
-                    else -> ResultsGrid(results, onOpenMovie, onOpenSeries)
+                        MessageBox("No $what match \"${vm.query.trim()}\".")
+                    else -> ResultsGrid(results, if (kind == MediaKind.SERIES) "TV Series" else "Movies", onOpen)
                 }
             }
         }
@@ -230,7 +232,7 @@ fun SearchScreen(onBack: () -> Unit, onOpenMovie: (Int) -> Unit, onOpenSeries: (
 }
 
 @Composable
-private fun ResultsGrid(results: SearchResults, onOpenMovie: (Int) -> Unit, onOpenSeries: (Int) -> Unit) {
+private fun ResultsGrid(results: SearchResults, label: String, onOpen: (Int) -> Unit) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 140.dp),
         contentPadding = PaddingValues(start = 24.dp, end = 24.dp, top = 8.dp, bottom = 40.dp),
@@ -238,14 +240,8 @@ private fun ResultsGrid(results: SearchResults, onOpenMovie: (Int) -> Unit, onOp
         verticalArrangement = Arrangement.spacedBy(14.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        if (results.movies.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) { SectionTitle("Movies", results.movies.size) }
-            items(results.movies) { p -> ResultPoster(p) { onOpenMovie(p.id) } }
-        }
-        if (results.series.isNotEmpty()) {
-            item(span = { GridItemSpan(maxLineSpan) }) { SectionTitle("TV Series", results.series.size) }
-            items(results.series) { p -> ResultPoster(p) { onOpenSeries(p.id) } }
-        }
+        item(span = { GridItemSpan(maxLineSpan) }) { SectionTitle(label, results.items.size) }
+        items(results.items) { p -> ResultPoster(p) { onOpen(p.id) } }
     }
 }
 

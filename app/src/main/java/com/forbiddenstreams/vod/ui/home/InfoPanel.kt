@@ -25,6 +25,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -43,7 +44,7 @@ data class InfoData(
  * the focused title, over its backdrop art.
  */
 @Composable
-fun InfoPanel(data: InfoData?, placeholder: String, modifier: Modifier = Modifier) {
+fun InfoPanel(data: InfoData?, placeholder: String, modifier: Modifier = Modifier, topInset: Dp = 0.dp) {
     val background = MaterialTheme.colorScheme.background
     Box(modifier.fillMaxWidth()) {
         // Backdrop on the right, fading into the background on the left and bottom.
@@ -82,7 +83,7 @@ fun InfoPanel(data: InfoData?, placeholder: String, modifier: Modifier = Modifie
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .fillMaxWidth(0.58f)
-                .padding(start = 24.dp, end = 12.dp),
+                .padding(start = 24.dp, end = 12.dp, top = topInset),
         ) { info ->
             if (info == null) {
                 Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)

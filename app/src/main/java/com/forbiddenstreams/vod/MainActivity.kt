@@ -58,13 +58,18 @@ class MainActivity : ComponentActivity() {
                             BrowseScreen(
                                 kind = kind,
                                 onBack = back,
-                                onSearch = { nav.navigate("search") },
+                                onSearch = { nav.navigate("search/$kind") },
                                 onSettings = { nav.navigate("settings") },
                                 onOpen = if (kind == MediaKind.SERIES) openSeries else openMovie,
                             )
                         }
-                        composable("search") {
-                            SearchScreen(onBack = back, onOpenMovie = openMovie, onOpenSeries = openSeries)
+                        composable("search/{kind}") { entry ->
+                            val kind = entry.arguments?.getString("kind") ?: MediaKind.MOVIE
+                            SearchScreen(
+                                kind = kind,
+                                onBack = back,
+                                onOpen = if (kind == MediaKind.SERIES) openSeries else openMovie,
+                            )
                         }
                         composable("mylist") {
                             MyListScreen(onBack = back, onOpenMovie = openMovie, onOpenSeries = openSeries)
