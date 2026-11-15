@@ -1,6 +1,6 @@
 package com.forbiddenstreams.vod.ui.home
 
-import androidx.compose.foundation.Canvas
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -43,6 +43,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -110,11 +111,8 @@ fun LandingScreen(
                 val cardWidth: Dp = min(maxHeight / 1.5f, (maxWidth - gap) / 2)
                 Row(horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.CenterVertically) {
                     BigPosterButton(
-                        title = "Movies",
-                        subtitle = "Films on demand",
-                        emoji = "\uD83C\uDFAC", // 🎬
-                        titleColor = Brand.ToxicGreen,
-                        glow = Brand.ToxicGreen,
+                        art = R.drawable.poster_movies,
+                        label = "Movies",
                         modifier = Modifier
                             .width(cardWidth)
                             .height(cardWidth * 1.5f)
@@ -122,11 +120,8 @@ fun LandingScreen(
                         onClick = onMovies,
                     )
                     BigPosterButton(
-                        title = "TV Series",
-                        subtitle = "Every season, every episode",
-                        emoji = "\uD83D\uDCFA", // 📺
-                        titleColor = Brand.Bone,
-                        glow = Brand.GlowGreen,
+                        art = R.drawable.poster_series,
+                        label = "TV Series",
                         modifier = Modifier
                             .width(cardWidth)
                             .height(cardWidth * 1.5f),
@@ -176,14 +171,11 @@ private fun TopRow(updateAvailable: Boolean, onMyList: () -> Unit, onSettings: (
     }
 }
 
-/** Large poster-shaped button styled after the logo: CRT scanlines and the red prohibition ring. */
+/** Large poster-shaped button using the gritty artwork made by art/make_posters.py. */
 @Composable
 private fun BigPosterButton(
-    title: String,
-    subtitle: String,
-    emoji: String,
-    titleColor: Color,
-    glow: Color,
+    @DrawableRes art: Int,
+    label: String,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
@@ -195,76 +187,11 @@ private fun BigPosterButton(
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
         modifier = modifier.focusHighlight(shape),
     ) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val density = LocalDensity.current
-            // Ring geometry, shared by the emoji and the ring so the emoji sits inside the circle.
-            val ringCenterY = maxHeight * 0.46f
-            val emojiSize = with(density) { (minOf(maxWidth, maxHeight) * 0.40f).toSp() }
-
-            // 1. Screen glow + scanlines
-            Canvas(Modifier.fillMaxSize()) {
-                drawRect(
-                    Brush.verticalGradient(
-                        listOf(glow.copy(alpha = 0.28f), Brand.Screen, Brand.Background),
-                    ),
-                )
-                val step = 6.dp.toPx()
-                var y = 0f
-                while (y < size.height) {
-                    drawLine(Color.White.copy(alpha = 0.035f), Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
-                    y += step
-                }
-            }
-
-            // 2. The emoji, behind the ring
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(ringCenterY * 2),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    emoji,
-                    fontSize = emojiSize,
-                    lineHeight = emojiSize,
-                    modifier = Modifier.alpha(0.92f),
-                )
-            }
-
-            // 3. Red prohibition ring on top
-            Canvas(Modifier.fillMaxSize()) {
-                val r = size.minDimension * 0.36f
-                val c = Offset(size.width / 2, size.height * 0.46f)
-                val stroke = size.minDimension * 0.06f
-                val red = Brand.ForbiddenRed.copy(alpha = 0.85f)
-                drawCircle(red, radius = r, center = c, style = Stroke(width = stroke))
-                val d = r / sqrt(2f)
-                drawLine(red, Offset(c.x - d, c.y - d), Offset(c.x + d, c.y + d), strokeWidth = stroke, cap = StrokeCap.Butt)
-            }
-
-            Column(
-                Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(Brush.verticalGradient(listOf(Color.Transparent, Brand.Background.copy(alpha = 0.92f))))
-                    .padding(horizontal = 20.dp, vertical = 24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(
-                    title.uppercase(),
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Black,
-                    color = titleColor,
-                    maxLines = 1,
-                )
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                )
-            }
-        }
+        Image(
+            painter = painterResource(art),
+            contentDescription = label,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
