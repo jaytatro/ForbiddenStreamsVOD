@@ -3,6 +3,7 @@ package com.forbiddenstreams.vod.data
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -63,6 +64,17 @@ class LocalStore(context: Context) {
         MessageDigest.getInstance("SHA-256")
             .digest("forbidden-streams-vod:$pin".toByteArray())
             .joinToString("") { "%02x".format(it) }
+
+    // ---- Catalog sizes (for the download percentage) ----
+
+    private fun catalogSizeKey(accountId: String, kind: String) = intPreferencesKey("catalog_size_${accountId}_$kind")
+
+    suspend fun lastCatalogSize(accountId: String, kind: String): Int? =
+        dataStore.data.first()[catalogSizeKey(accountId, kind)]
+
+    suspend fun saveCatalogSize(accountId: String, kind: String, size: Int) {
+        dataStore.edit { it[catalogSizeKey(accountId, kind)] = size }
+    }
 
     // ---- Favorites ----
 

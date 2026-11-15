@@ -32,14 +32,14 @@ class XtreamRepository(val client: XtreamClient) {
     fun hasCatalog(kind: String): Boolean =
         if (kind == MediaKind.SERIES) allSeries != null else allMovies != null
 
-    suspend fun allMovies(force: Boolean = false, onProgress: ((Int) -> Unit)? = null): List<Movie> =
+    suspend fun allMovies(force: Boolean = false, onProgress: ((Int, Float?) -> Unit)? = null): List<Movie> =
         allMovies.takeUnless { force } ?: loadAll(
             whole = { client.movies(null, onProgress) },
             categories = { vodCategories(force) },
             perCategory = { client.movies(it) },
         ).also { allMovies = it }
 
-    suspend fun allSeries(force: Boolean = false, onProgress: ((Int) -> Unit)? = null): List<Series> =
+    suspend fun allSeries(force: Boolean = false, onProgress: ((Int, Float?) -> Unit)? = null): List<Series> =
         allSeries.takeUnless { force } ?: loadAll(
             whole = { client.series(null, onProgress) },
             categories = { seriesCategories(force) },

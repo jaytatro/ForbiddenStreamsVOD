@@ -31,6 +31,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -100,7 +103,7 @@ fun PosterCard(
 
     var focused by remember { mutableStateOf(false) }
     val scale by animateFloatAsState(if (focused) 1.06f else 1f, label = "posterScale")
-    val ring = Brand.GlowGreen
+    val interaction = remember { MutableInteractionSource() }
     Card(
         shape = shape,
         modifier = modifier
@@ -115,15 +118,21 @@ fun PosterCard(
                     Modifier
                 },
             )
-            .clip(shape)
-            .combinedClickable(onClick = click, onLongClick = touchLongClick)
+            // No ripple: on a TV the green ring is the selection indicator.
+            .combinedClickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = click,
+                onLongClick = touchLongClick,
+            )
             // The zoom and ring are applied *after* the focusable part, so scrolling sees the
             // poster's real size. Zooming before it made lists nudge a few pixels on every move.
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
             }
-            .then(if (focused) Modifier.border(3.dp, ring, shape) else Modifier),
+            .then(if (focused) Modifier.selectionRing() else Modifier)
+            .clip(shape),
     ) {
         Box(
             Modifier

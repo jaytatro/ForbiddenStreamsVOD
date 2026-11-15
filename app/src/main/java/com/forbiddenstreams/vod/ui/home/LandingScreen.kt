@@ -34,7 +34,9 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -84,21 +86,37 @@ fun LandingScreen(
     // Which catalog is being downloaded before opening its screen.
     var downloading by remember { mutableStateOf<String?>(null) }
     var downloadError by remember { mutableStateOf<String?>(null) }
+    var downloadedTitles by remember { mutableIntStateOf(0) }
+    var lastAttempt by remember { mutableStateOf<String?>(null) }
+    /** 0..1 when the size is known (from the server or the last download), else null. */
+    var downloadFraction by remember { mutableStateOf<Float?>(null) }
 
     // Download the chosen catalog (green bar shows meanwhile), then open its screen.
     // Instant if it's already downloaded. Back cancels.
     LaunchedEffect(downloading) {
         val kind = downloading ?: return@LaunchedEffect
         downloadError = null
+        downloadedTitles = 0
+        downloadFraction = null
         try {
             val repo = container.repository ?: throw IllegalStateException("Please sign in again")
-            if (kind == MediaKind.SERIES) {
+            val accountId = container.account?.id.orEmpty()
+            val lastSize = container.store.lastCatalogSize(accountId, kind)
+            val onProgress: (Int, Float?) -> Unit = { titles, bytes ->
+                downloadedTitles = titles
+                // Prefer the real byte size; otherwise compare with last time's title count.
+                downloadFraction = (bytes ?: lastSize?.takeIf { it > 0 }?.let { titles.toFloat() / it })
+                    ?.coerceIn(0f, 0.99f)
+            }
+            val size = if (kind == MediaKind.SERIES) {
                 repo.seriesCategories()
-                repo.allSeries()
+                repo.allSeries(onProgress = onProgress).size
             } else {
                 repo.vodCategories()
-                repo.allMovies()
+                repo.allMovies(onProgress = onProgress).size
             }
+            downloadFraction = 1f
+            if (size > 0) container.store.saveCatalogSize(accountId, kind, size)
             downloading = null
             if (kind == MediaKind.SERIES) onSeries() else onMovies()
         } catch (e: CancellationException) {
@@ -137,31 +155,6 @@ fun LandingScreen(
                 onMyList = onMyList,
                 onSettings = onSettings,
             )
-            // Green download bar between the logo and the posters (space kept so nothing moves).
-            Box(
-                Modifier
-                    .fillMaxWidth()
-                    .padding(top = 18.dp)
-                    .height(22.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                when {
-                    downloading != null -> LinearProgressIndicator(
-                        color = Brand.ToxicGreen,
-                        trackColor = Brand.ToxicGreen.copy(alpha = 0.18f),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(6.dp)
-                            .clip(RoundedCornerShape(3.dp)),
-                    )
-                    downloadError != null -> Text(
-                        downloadError.orEmpty(),
-                        color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                    )
-                }
-            }
             BoxWithConstraints(
                 Modifier
                     .weight(1f)
@@ -170,26 +163,36 @@ fun LandingScreen(
                 contentAlignment = Alignment.Center,
             ) {
                 val gap = 48.dp
-                // Two 2:3 posters side by side, as big as the space allows.
-                val cardWidth: Dp = min(maxHeight / 1.5f, (maxWidth - gap) / 2)
-                Row(horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.CenterVertically) {
-                    BigPosterButton(
-                        art = R.drawable.poster_movies,
-                        label = "Movies",
-                        modifier = Modifier
-                            .width(cardWidth)
-                            .height(cardWidth * 1.5f)
-                            .focusRequester(moviesFocus),
-                        onClick = { downloading = MediaKind.MOVIE },
-                    )
-                    BigPosterButton(
-                        art = R.drawable.poster_series,
-                        label = "TV Series",
-                        modifier = Modifier
-                            .width(cardWidth)
-                            .height(cardWidth * 1.5f),
-                        onClick = { downloading = MediaKind.SERIES },
-                    )
+                val barArea = 34.dp
+                // Two 2:3 posters side by side, as big as the space allows (leaving room for the bar).
+                val cardWidth: Dp = min((maxHeight - barArea) / 1.5f, (maxWidth - gap) / 2)
+                Row(horizontalArrangement = Arrangement.spacedBy(gap), verticalAlignment = Alignment.Bottom) {
+                    for (kind in listOf(MediaKind.MOVIE, MediaKind.SERIES)) {
+                        Column(Modifier.width(cardWidth)) {
+                            // Green download bar, the same width as the poster it's downloading.
+                            DownloadBar(
+                                active = downloading == kind,
+                                fraction = downloadFraction,
+                                titles = downloadedTitles,
+                                error = downloadError.takeIf { lastAttempt == kind },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(barArea),
+                            )
+                            BigPosterButton(
+                                art = if (kind == MediaKind.MOVIE) R.drawable.poster_movies else R.drawable.poster_series,
+                                label = if (kind == MediaKind.MOVIE) "Movies" else "TV Series",
+                                modifier = Modifier
+                                    .width(cardWidth)
+                                    .height(cardWidth * 1.5f)
+                                    .then(if (kind == MediaKind.MOVIE) Modifier.focusRequester(moviesFocus) else Modifier),
+                                onClick = {
+                                    lastAttempt = kind
+                                    downloading = kind
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -197,6 +200,59 @@ fun LandingScreen(
 
     crashReport?.let { report -> CrashReportDialog(report, onDismiss = { crashReport = null }) }
 
+}
+
+/** Green progress bar with a percentage (or a title count when the size isn't known yet). */
+@Composable
+private fun DownloadBar(
+    active: Boolean,
+    fraction: Float?,
+    titles: Int,
+    error: String?,
+    modifier: Modifier = Modifier,
+) {
+    Box(modifier.padding(bottom = 10.dp), contentAlignment = Alignment.BottomCenter) {
+        when {
+            active -> Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                val barModifier = Modifier
+                    .weight(1f)
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                val track = Brand.ToxicGreen.copy(alpha = 0.18f)
+                if (fraction != null) {
+                    val animated by animateFloatAsState(fraction, label = "download")
+                    LinearProgressIndicator(
+                        progress = { animated },
+                        color = Brand.ToxicGreen,
+                        trackColor = track,
+                        drawStopIndicator = {},
+                        modifier = barModifier,
+                    )
+                } else {
+                    LinearProgressIndicator(color = Brand.ToxicGreen, trackColor = track, modifier = barModifier)
+                }
+                Text(
+                    when {
+                        fraction != null -> "${(fraction * 100).toInt()}%"
+                        titles > 0 -> "%,d".format(titles)
+                        else -> "0%"
+                    },
+                    color = Brand.GlowGreen,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            error != null -> Text(
+                error,
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+            )
+        }
+    }
 }
 
 @Composable

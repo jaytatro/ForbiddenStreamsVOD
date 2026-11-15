@@ -96,20 +96,23 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private val PosterWidth = 100.dp
-private val PosterGap = 12.dp
+private val PosterGap = 16.dp
 private val SidePadding = 24.dp
+
+/** Space above/below posters in a row, so the zoom and selection ring are never cut off. */
+private val RowPosterPadding = 14.dp
 
 /** Space taken by the floating top bar. */
 private val HeaderHeight = 72.dp
 
 /** Where the focused poster settles vertically: just below its row title. */
-private val RowPivot = 50.dp
+private val RowPivot = 56.dp
 
 /**
  * Height of the rows area: exactly one row (title + poster), so only the focused row shows
  * and the info panel above gets the rest of the screen.
  */
-private val RowAreaHeight = RowPivot + PosterWidth * 1.5f + 12.dp
+private val RowAreaHeight = RowPivot + PosterWidth * 1.5f + 18.dp
 
 // ---- Movies / TV Series: info panel + Netflix-style rows ------------------------------------
 
@@ -360,7 +363,7 @@ private fun CatalogRows(
                             PivotScrolling(pivot = SidePadding) {
                                 LazyRow(
                                     state = rowStates.getOrPut(row.id) { LazyListState() },
-                                    contentPadding = PaddingValues(horizontal = SidePadding, vertical = 8.dp),
+                                    contentPadding = PaddingValues(horizontal = SidePadding, vertical = RowPosterPadding),
                                     horizontalArrangement = Arrangement.spacedBy(PosterGap),
                                 ) {
                                     itemsIndexed(row.items) { i, poster ->
@@ -411,9 +414,9 @@ private fun CategoryFullScreen(row: CategoryRow, onClose: () -> Unit, onOpen: (I
         PivotScrolling(pivot = 16.dp) {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(6),
-                contentPadding = PaddingValues(start = SidePadding, end = SidePadding, top = 8.dp, bottom = 40.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                contentPadding = PaddingValues(start = SidePadding, end = SidePadding, top = 14.dp, bottom = 40.dp),
+                horizontalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(18.dp),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 gridItemsIndexed(row.items) { i, poster ->

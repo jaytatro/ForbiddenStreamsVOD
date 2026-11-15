@@ -16,6 +16,8 @@ import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.EOFException
+import java.io.FilterInputStream
+import java.io.InputStreamReader
 import java.io.IOException
 
 /** Sent with API calls and stream requests. Some providers filter by user agent; change it here if needed. */
@@ -77,11 +79,11 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
      * Movies in one category, or the whole catalog when [categoryId] is null.
      * [onProgress] receives the running count of titles read so far.
      */
-    suspend fun movies(categoryId: String? = null, onProgress: ((Int) -> Unit)? = null): List<Movie> =
+    suspend fun movies(categoryId: String? = null, onProgress: ((Int, Float?) -> Unit)? = null): List<Movie> =
         streamList("get_vod_streams", *categoryParam(categoryId), onProgress = onProgress) { it.toMovie() }
 
     /** Series in one category, or the whole catalog when [categoryId] is null. */
-    suspend fun series(categoryId: String? = null, onProgress: ((Int) -> Unit)? = null): List<Series> =
+    suspend fun series(categoryId: String? = null, onProgress: ((Int, Float?) -> Unit)? = null): List<Series> =
         streamList("get_series", *categoryParam(categoryId), onProgress = onProgress) { it.toSeries() }
 
     private fun categoryParam(categoryId: String?): Array<Pair<String, String>> =
@@ -180,15 +182,18 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
     private suspend fun <T> streamList(
         action: String,
         vararg params: Pair<String, String>,
-        onProgress: ((Int) -> Unit)? = null,
+        onProgress: ((Int, Float?) -> Unit)? = null,
         map: (JsonObject) -> T?,
     ): List<T> = withContext(Dispatchers.IO) {
+        var bytesRead = 0L
+        var totalBytes = -1L
+        fun fraction(): Float? = if (totalBytes > 0) (bytesRead.toFloat() / totalBytes).coerceIn(0f, 1f) else null
         fun add(out: ArrayList<T>, item: T?) {
             if (item == null) return
             out += item
             if (out.size % PROGRESS_EVERY == 0) {
                 ensureActive() // stop reading if the user cancelled
-                onProgress?.invoke(out.size)
+                onProgress?.invoke(out.size, fraction())
             }
         }
         val request = Request.Builder().url(apiUrl(action, *params)).header("User-Agent", USER_AGENT).build()
@@ -197,8 +202,15 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
                 if (!response.isSuccessful) throw XtreamException("Server returned HTTP ${response.code}")
                 val body = response.body ?: return@use emptyList()
                 val out = ArrayList<T>()
+                // Count bytes so progress can be a percentage when the server sends a size.
+                totalBytes = body.contentLength()
+                val counting = object : FilterInputStream(body.byteStream()) {
+                    override fun read(): Int = super.read().also { if (it >= 0) bytesRead++ }
+                    override fun read(b: ByteArray, off: Int, len: Int): Int =
+                        super.read(b, off, len).also { if (it > 0) bytesRead += it }
+                }
                 try {
-                    JsonReader(body.charStream().buffered()).use { reader ->
+                    JsonReader(InputStreamReader(counting, Charsets.UTF_8).buffered()).use { reader ->
                         val first = try {
                             reader.peek()
                         } catch (e: EOFException) {
@@ -230,7 +242,7 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
                     // Malformed JSON (e.g. an HTML error page) or the connection dropped mid-list.
                     throw XtreamException("The server sent an incomplete or invalid catalog. Please try again.", e)
                 }
-                onProgress?.invoke(out.size)
+                onProgress?.invoke(out.size, 1f)
                 out
             }
         } catch (e: XtreamException) {

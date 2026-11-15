@@ -54,8 +54,8 @@ fun KeepWatchingRow(
     Column(modifier) {
         RowTitle("Keep watching")
         LazyRow(
-            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             itemsIndexed(entries) { index, entry ->
                 PosterCard(
