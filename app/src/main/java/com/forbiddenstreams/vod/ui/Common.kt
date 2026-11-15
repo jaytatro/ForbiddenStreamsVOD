@@ -1,5 +1,7 @@
 package com.forbiddenstreams.vod.ui
 
+import android.os.SystemClock
+import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
@@ -30,6 +32,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -88,13 +94,25 @@ fun PosterCard(
     onClick: () -> Unit,
 ) {
     val shape = MaterialTheme.shapes.medium
+    // Remotes send repeated key-downs while OK is held; treat the first repeat as a long
+    // press, and skip the click that the key-up would otherwise trigger.
+    val keyState = remember { LongPressKeyState() }
+    val fireLongClick: (() -> Unit)? = onLongClick?.let { long -> { keyState.fire(long) } }
+    val click: () -> Unit = { if (!keyState.consumeSuppressedClick()) onClick() }
     Card(
         shape = shape,
         modifier = modifier
             .onFocusChanged { if (it.hasFocus) onFocused?.invoke() }
+            .then(
+                if (fireLongClick != null) {
+                    Modifier.onPreviewKeyEvent { event -> keyState.handle(event, fireLongClick) }
+                } else {
+                    Modifier
+                },
+            )
             .focusHighlight(shape)
             .clip(shape)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .combinedClickable(onClick = click, onLongClick = fireLongClick),
     ) {
         Box(
             Modifier
@@ -153,6 +171,48 @@ fun PosterCard(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(8.dp),
             )
+        }
+    }
+}
+
+/** Tracks a held OK / Enter key for [PosterCard]. */
+private class LongPressKeyState {
+    private var firedDuringPress = false
+    private var lastFired = 0L
+
+    /** Runs [action] unless a long press was just handled (touch and key paths can both fire). */
+    fun fire(action: () -> Unit) {
+        val now = SystemClock.uptimeMillis()
+        if (now - lastFired > 700) {
+            lastFired = now
+            action()
+        }
+    }
+
+    /** True (once) if the click following a remote long press should be ignored. */
+    fun consumeSuppressedClick(): Boolean {
+        val suppress = firedDuringPress && SystemClock.uptimeMillis() - lastFired < 3_000
+        firedDuringPress = false
+        return suppress
+    }
+
+    fun handle(event: KeyEvent, onLong: () -> Unit): Boolean {
+        val native = event.nativeKeyEvent
+        val isOk = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+            native.keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+            native.keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
+        if (!isOk || event.type != KeyEventType.KeyDown) return false
+        return when {
+            native.repeatCount == 0 -> {
+                firedDuringPress = false
+                false // let the normal press / click handling start
+            }
+            !firedDuringPress -> {
+                firedDuringPress = true
+                onLong()
+                true
+            }
+            else -> true // ignore further repeats while held
         }
     }
 }
@@ -218,3 +278,32 @@ fun formatDuration(seconds: Int?): String? {
 
 /** "2019-05-24" -> "2019". */
 fun yearOf(date: String?): String? = date?.trim()?.take(4)?.takeIf { it.length == 4 && it.all(Char::isDigit) }
+
+/**
+ * Main action button on detail pages: white with black text; a green ring shows when the
+ * remote has it selected.
+ */
+@Composable
+fun WhiteButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+) {
+    androidx.compose.material3.Button(
+        onClick = onClick,
+        shape = RoundedCornerShape(10.dp),
+        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+            containerColor = Color.White,
+            contentColor = Color.Black,
+        ),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 26.dp, vertical = 12.dp),
+        modifier = modifier.focusHighlight(RoundedCornerShape(10.dp)),
+    ) {
+        if (icon != null) {
+            androidx.compose.material3.Icon(icon, contentDescription = null)
+            androidx.compose.foundation.layout.Spacer(Modifier.padding(start = 8.dp))
+        }
+        Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+    }
+}

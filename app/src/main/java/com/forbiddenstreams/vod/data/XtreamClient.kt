@@ -109,6 +109,7 @@ class XtreamClient(private val http: OkHttpClient, val account: Account) {
             releaseDate = info.str("releasedate") ?: info.str("release_date"),
             durationSecs = info.int("duration_secs") ?: parseDuration(info.str("duration")),
             backdrop = info.firstString("backdrop_path"),
+            youtubeTrailer = info.str("youtube_trailer") ?: info.str("trailer"),
         )
     }
 

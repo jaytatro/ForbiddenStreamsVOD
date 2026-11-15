@@ -29,7 +29,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import coil.compose.AsyncImage
+import com.forbiddenstreams.vod.ui.Brand
 
 /** Backdrop, poster, title, metadata and action buttons shared by the movie and series screens. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -69,41 +71,60 @@ fun DetailHeader(
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            // Poster on the left; title, details, description and Play button to its right.
+            Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 AsyncImage(
                     model = poster,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
-                        .width(160.dp)
+                        .width(180.dp)
                         .aspectRatio(2f / 3f)
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                 )
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.headlineMedium,
+                        fontWeight = FontWeight.Black,
+                        color = Brand.Bone,
+                    )
                     if (!meta.isNullOrBlank()) {
-                        Text(meta, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            meta,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Brand.GlowGreen,
+                        )
+                    }
+                    if (!plot.isNullOrBlank()) {
+                        Text(
+                            plot,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.9f),
+                            maxLines = 6,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    credits.forEach { (label, value) ->
+                        if (!value.isNullOrBlank()) {
+                            Text(
+                                "$label: $value",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
                     }
                     FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(top = 6.dp),
                     ) {
                         actions()
                     }
-                }
-            }
-            if (!plot.isNullOrBlank()) {
-                Text(plot, style = MaterialTheme.typography.bodyMedium)
-            }
-            credits.forEach { (label, value) ->
-                if (!value.isNullOrBlank()) {
-                    Text(
-                        "$label: $value",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 3,
-                    )
                 }
             }
         }

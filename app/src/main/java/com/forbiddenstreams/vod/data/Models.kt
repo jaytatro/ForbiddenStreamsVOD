@@ -51,6 +51,8 @@ data class MovieDetails(
     val releaseDate: String?,
     val durationSecs: Int?,
     val backdrop: String?,
+    /** YouTube id or URL from the provider, if any. */
+    val youtubeTrailer: String? = null,
 )
 
 data class Series(

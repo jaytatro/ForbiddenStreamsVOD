@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.forbiddenstreams.vod.data.LocalStore
 import com.forbiddenstreams.vod.data.UpdateInfo
+import com.forbiddenstreams.vod.data.TrailerFinder
 import com.forbiddenstreams.vod.data.UpdateManager
 import com.forbiddenstreams.vod.data.XtreamClient
 import com.forbiddenstreams.vod.data.XtreamRepository
@@ -69,6 +70,8 @@ class AppContainer(context: Context) {
     val store = LocalStore(context)
 
     val updates = UpdateManager(context, http)
+
+    val trailers = TrailerFinder(http)
 
     /** Set by the background check on the home screen; shows a badge on the Settings button. */
     var availableUpdate by mutableStateOf<UpdateInfo?>(null)

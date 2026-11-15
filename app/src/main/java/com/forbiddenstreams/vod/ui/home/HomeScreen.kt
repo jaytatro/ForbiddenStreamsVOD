@@ -12,11 +12,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -45,6 +49,8 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -90,7 +96,13 @@ private val PosterGap = 12.dp
 private val SidePadding = 24.dp
 
 /** Where the focused poster settles vertically: just below its row title. */
-private val RowPivot = 40.dp
+private val RowPivot = 50.dp
+
+/**
+ * Height of the rows area: exactly one row (title + poster), so only the focused row shows
+ * and the info panel above gets the rest of the screen.
+ */
+private val RowAreaHeight = RowPivot + PosterWidth * 1.5f + 12.dp
 
 // ---- Movies / TV Series: info panel + Netflix-style rows ------------------------------------
 
@@ -229,22 +241,20 @@ fun BrowseScreen(
                         onAction = { vm.load(force = true) },
                     )
                 } else {
-                    BoxWithConstraints(Modifier.fillMaxSize()) {
-                        val panelHeight = (maxHeight * 0.36f).coerceIn(130.dp, 260.dp)
-                        Column(Modifier.fillMaxSize()) {
-                            InfoPanel(
-                                data = vm.info(),
-                                placeholder = "Hold OK on a poster to expand its row.",
-                                modifier = Modifier.height(panelHeight),
-                            )
-                            CatalogRows(
-                                vm = vm,
-                                rows = state.value,
-                                keepWatching = keepWatching,
-                                onKeepWatching = { dialogEntry = it },
-                                onOpen = onOpen,
-                            )
-                        }
+                    Column(Modifier.fillMaxSize()) {
+                        InfoPanel(
+                            data = vm.info(),
+                            placeholder = "Hold OK on a poster to see its whole category.",
+                            modifier = Modifier.weight(1f),
+                        )
+                        CatalogRows(
+                            vm = vm,
+                            rows = state.value,
+                            keepWatching = keepWatching,
+                            onKeepWatching = { dialogEntry = it },
+                            onOpen = onOpen,
+                            modifier = Modifier.height(RowAreaHeight),
+                        )
                     }
                 }
             }
@@ -252,6 +262,13 @@ fun BrowseScreen(
     }
 
     dialogEntry?.let { entry -> KeepWatchingDialog(entry, onDismiss = { dialogEntry = null }) }
+
+    // Holding OK on a poster opens its whole category full screen, in its own window so
+    // closing it lands back on the same poster.
+    val expandedRow = (vm.rows as? Load.Ready<List<CategoryRow>>)?.value?.firstOrNull { it.id == vm.expandedRowId }
+    if (expandedRow != null) {
+        CategoryFullScreen(row = expandedRow, onClose = { vm.expandedRowId = null }, onOpen = onOpen)
+    }
 }
 
 @Composable
@@ -261,13 +278,12 @@ private fun CatalogRows(
     keepWatching: List<ResumeEntry>,
     onKeepWatching: (ResumeEntry) -> Unit,
     onOpen: (Int) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
     // Each row keeps its sideways position while it scrolls off screen and back.
     val rowStates = remember(rows) { HashMap<String, LazyListState>() }
     val firstFocus = remember { FocusRequester() }
-    val expandedRowId = vm.expandedRowId
-    val leadingItems = if (keepWatching.isNotEmpty()) 1 else 0
 
     // Put D-pad focus on the first poster so the info panel and remote work right away.
     LaunchedEffect(Unit) {
@@ -275,21 +291,11 @@ private fun CatalogRows(
         runCatching { firstFocus.requestFocus() }
     }
 
-    // Back closes an expanded row before leaving the screen.
-    BackHandler(enabled = expandedRowId != null) { vm.expandedRowId = null }
-
-    LaunchedEffect(expandedRowId) {
-        val index = rows.indexOfFirst { it.id == expandedRowId }
-        if (index >= 0) listState.animateScrollToItem(leadingItems + index)
-    }
-
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val columns = (((maxWidth - SidePadding * 2) + PosterGap) / (PosterWidth + PosterGap)).toInt().coerceAtLeast(2)
-
+    BoxWithConstraints(modifier.fillMaxWidth()) {
         PivotScrolling(pivot = RowPivot) {
             LazyColumn(
                 state = listState,
-                // Room at the end so the last rows can also scroll up to the pivot.
+                // Room at the end so the last row can also scroll up to the pivot.
                 contentPadding = PaddingValues(bottom = maxHeight),
                 modifier = Modifier.fillMaxSize(),
             ) {
@@ -313,57 +319,23 @@ private fun CatalogRows(
 
                 rows.forEachIndexed { rowIndex, row ->
                     val takesFirstFocus = keepWatching.isEmpty() && rowIndex == 0
-                    if (row.id == expandedRowId) {
-                        item(key = "row_${rowIndex}_header") {
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(end = SidePadding),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                RowTitle("${row.name}  ·  ${row.items.size}", Modifier.weight(1f))
-                                TextButton(onClick = { vm.expandedRowId = null }, modifier = Modifier.padding(top = 14.dp)) {
-                                    Text("Collapse", color = Brand.GlowGreen)
-                                }
-                            }
-                        }
-                        row.items.chunked(columns).forEachIndexed { chunkIndex, chunk ->
-                            item(key = "row_${rowIndex}_grid_$chunkIndex") {
-                                Row(
-                                    Modifier.padding(horizontal = SidePadding, vertical = PosterGap / 2),
+                    item(key = "row_$rowIndex") {
+                        Column {
+                            RowTitle(row.name)
+                            PivotScrolling(pivot = SidePadding) {
+                                LazyRow(
+                                    state = rowStates.getOrPut(row.id) { LazyListState() },
+                                    contentPadding = PaddingValues(horizontal = SidePadding, vertical = 8.dp),
                                     horizontalArrangement = Arrangement.spacedBy(PosterGap),
                                 ) {
-                                    chunk.forEachIndexed { i, poster ->
+                                    itemsIndexed(row.items) { i, poster ->
                                         Poster(
                                             item = poster,
                                             vm = vm,
                                             onOpen = onOpen,
-                                            onLongClick = { vm.expandedRowId = null },
-                                            focusRequester = if (takesFirstFocus && chunkIndex == 0 && i == 0) firstFocus else null,
+                                            onLongClick = { vm.expandedRowId = row.id },
+                                            focusRequester = if (takesFirstFocus && i == 0) firstFocus else null,
                                         )
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        item(key = "row_$rowIndex") {
-                            Column {
-                                RowTitle(row.name)
-                                PivotScrolling(pivot = SidePadding) {
-                                    LazyRow(
-                                        state = rowStates.getOrPut(row.id) { LazyListState() },
-                                        contentPadding = PaddingValues(horizontal = SidePadding, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.spacedBy(PosterGap),
-                                    ) {
-                                        itemsIndexed(row.items) { i, poster ->
-                                            Poster(
-                                                item = poster,
-                                                vm = vm,
-                                                onOpen = onOpen,
-                                                onLongClick = { vm.expandedRowId = row.id },
-                                                focusRequester = if (takesFirstFocus && i == 0) firstFocus else null,
-                                            )
-                                        }
                                     }
                                 }
                             }
@@ -372,6 +344,56 @@ private fun CatalogRows(
                 }
             }
         }
+    }
+}
+
+/** A whole category as a full-screen poster grid. Back (or holding OK again) closes it. */
+@Composable
+private fun CategoryFullScreen(row: CategoryRow, onClose: () -> Unit, onOpen: (Int) -> Unit) {
+    val firstFocus = remember { FocusRequester() }
+    LaunchedEffect(row.id) {
+        delay(80)
+        runCatching { firstFocus.requestFocus() }
+    }
+
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+            .safeDrawingPadding(),
+    ) {
+        ScreenHeader(row.name, onBack = onClose) {
+            Text(
+                "%,d titles".format(row.items.size),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        PivotScrolling(pivot = 16.dp) {
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 120.dp),
+                contentPadding = PaddingValues(start = SidePadding, end = SidePadding, top = 8.dp, bottom = 40.dp),
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                gridItemsIndexed(row.items) { i, poster ->
+                    PosterCard(
+                        title = poster.title,
+                        image = poster.image,
+                        badge = ratingBadge(poster.rating),
+                        onLongClick = onClose,
+                        modifier = if (i == 0) Modifier.focusRequester(firstFocus) else Modifier,
+                        onClick = { onOpen(poster.id) },
+                    )
+                }
+            }
+        }
+    }
     }
 }
 

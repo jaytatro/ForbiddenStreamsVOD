@@ -16,10 +16,10 @@ An Android TV app (also runs on phones and tablets) for watching **movies and se
 - **Info panel** at the top shows the focused title's name, year, runtime, genre, rating, plot and backdrop.
 - **Smooth TV scrolling**: the focused poster glides to a fixed spot; rows remember their position.
 - **Parental controls**: set a 4-digit PIN in Settings to hide anything marked 18+ / XXX (and adult categories) everywhere.
-- **Netflix-style Movies and TV Series screens**: every provider category is its own sideways-scrolling row, with *Recently added* first. Hold OK (or long-press) on a poster to expand its row into a full grid; Back collapses it.
+- **Netflix-style Movies and TV Series screens**: every provider category is its own sideways-scrolling row, with *Recently added* first. Hold OK (or long-press) on a poster to open its whole category full screen; Back closes it. Only the focused row shows under a large info panel.
 - **Keep watching** row at the top of each screen. Selecting an item opens Resume / Start over / Remove.
 - **Search**: the Search button opens a search screen; movies and TV series fill in as you type.
-- **Movie details**: backdrop, plot, year, runtime, genre, director, cast.
+- **Movie details**: poster with the description beside it, a white Play button, and a **Trailers** row (the provider's trailer plus YouTube search results) that plays inside the app via YouTube's official player.
 - **Series details**: season picker and episode list with thumbnails, runtimes and progress bars.
 - **Playback** with ExoPlayer (Media3): MP4, MKV, TS and HLS, plus audio and subtitle track selection.
 - **Resume watching**: progress is saved every 10 seconds and when you leave the player. A title is cleared once you've watched 95% of it.

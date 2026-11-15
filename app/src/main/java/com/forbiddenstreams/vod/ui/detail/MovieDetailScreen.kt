@@ -1,5 +1,27 @@
 package com.forbiddenstreams.vod.ui.detail
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import coil.compose.AsyncImage
+import com.forbiddenstreams.vod.data.Trailer
+import com.forbiddenstreams.vod.player.TrailerActivity
+import com.forbiddenstreams.vod.ui.WhiteButton
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -82,7 +104,22 @@ class MovieDetailViewModel(private val container: AppContainer, private val id: 
         }
         details = Load.Loading
         viewModelScope.launch {
-            details = loadCatching("Couldn't load this movie") { repo.movieDetails(id) }
+            val result = loadCatching("Couldn't load this movie") { repo.movieDetails(id) }
+            details = result
+            if (result is Load.Ready) loadTrailers(result.value)
+        }
+    }
+
+    /** YouTube trailers for this movie (provider's own first, then search results). */
+    var trailers by mutableStateOf<Load<List<Trailer>>>(Load.Loading)
+        private set
+
+    private fun loadTrailers(d: MovieDetails) {
+        trailers = Load.Loading
+        viewModelScope.launch {
+            trailers = loadCatching("Couldn't find trailers") {
+                container.trailers.find(d.movie.name, yearOf(d.releaseDate), d.youtubeTrailer)
+            }
         }
     }
 
@@ -151,39 +188,116 @@ fun MovieDetailScreen(id: Int, onBack: () -> Unit) {
                 ) {
                     val saved = resume
                     if (saved != null && saved.positionMs > 0) {
-                        Button(
+                        WhiteButton(
+                            text = "Resume ${formatTime(saved.positionMs)}",
+                            icon = Icons.Default.PlayArrow,
                             onClick = { Playback.start(context, vm.entryFor(d, saved)) },
-                            modifier = Modifier.focusRequester(playFocus).focusHighlight(),
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Resume ${formatTime(saved.positionMs)}")
-                        }
+                            modifier = Modifier.focusRequester(playFocus),
+                        )
                         OutlinedButton(
                             onClick = { Playback.start(context, vm.entryFor(d, saved), fromStart = true) },
                             modifier = Modifier.focusHighlight(),
                         ) { Text("Start over") }
                     } else {
-                        Button(
+                        WhiteButton(
+                            text = "Play",
+                            icon = Icons.Default.PlayArrow,
                             onClick = { Playback.start(context, vm.entryFor(d, null)) },
-                            modifier = Modifier.focusRequester(playFocus).focusHighlight(),
-                        ) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Play")
-                        }
-                    }
-                    OutlinedButton(onClick = { vm.toggleFavorite(d) }, modifier = Modifier.focusHighlight()) {
-                        Icon(
-                            if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                            contentDescription = null,
+                            modifier = Modifier.focusRequester(playFocus),
                         )
-                        Spacer(Modifier.width(6.dp))
-                        Text(if (isFavorite) "Favorited" else "Favorite")
                     }
                 }
+                TrailersRow(vm.trailers)
                 Spacer(Modifier.height(24.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun TrailersRow(state: Load<List<Trailer>>) {
+    val context = LocalContext.current
+    Column(Modifier.padding(top = 8.dp)) {
+        Text(
+            "Trailers",
+            style = MaterialTheme.typography.titleLarge,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+        )
+        when (state) {
+            Load.Loading -> Text(
+                "Looking for trailers…",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp),
+            )
+            is Load.Error -> Text(
+                state.message,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp),
+            )
+            is Load.Ready -> if (state.value.isEmpty()) {
+                Text(
+                    "No trailers found.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 24.dp),
+                )
+            } else {
+                val ids = state.value.map { it.videoId }
+                LazyRow(
+                    contentPadding = PaddingValues(horizontal = 24.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    itemsIndexed(state.value) { index, trailer ->
+                        TrailerCard(trailer) {
+                            context.startActivity(TrailerActivity.intent(context, ids, index))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrailerCard(trailer: Trailer, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(12.dp)
+    Card(
+        onClick = onClick,
+        shape = shape,
+        modifier = Modifier
+            .width(240.dp)
+            .focusHighlight(shape),
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .aspectRatio(16f / 9f)
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+        ) {
+            AsyncImage(
+                model = trailer.thumbnail,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            Icon(
+                Icons.Default.PlayArrow,
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(44.dp)
+                    .background(Color.Black.copy(alpha = 0.55f), CircleShape)
+                    .padding(6.dp),
+            )
+        }
+        Text(
+            trailer.title,
+            style = MaterialTheme.typography.bodySmall,
+            maxLines = 2,
+            minLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(10.dp),
+        )
     }
 }

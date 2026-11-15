@@ -66,6 +66,7 @@ import com.forbiddenstreams.vod.ui.Load
 import com.forbiddenstreams.vod.ui.LoadingBox
 import com.forbiddenstreams.vod.ui.MessageBox
 import com.forbiddenstreams.vod.ui.Playback
+import com.forbiddenstreams.vod.ui.WhiteButton
 import com.forbiddenstreams.vod.ui.focusHighlight
 import com.forbiddenstreams.vod.ui.formatDuration
 import com.forbiddenstreams.vod.ui.loadCatching
@@ -182,34 +183,22 @@ fun SeriesDetailScreen(id: Int, onBack: () -> Unit) {
                         onBack = onBack,
                     ) {
                         if (latest != null) {
-                            Button(
+                            WhiteButton(
+                                text = "Continue ${latest.subtitle.orEmpty()}".trim(),
+                                icon = Icons.Default.PlayArrow,
                                 onClick = { Playback.start(context, latest) },
-                                modifier = Modifier.focusRequester(primaryFocus).focusHighlight(),
-                            ) {
-                                Icon(Icons.Default.PlayArrow, contentDescription = null)
-                                Spacer(Modifier.width(6.dp))
-                                Text("Continue ${latest.subtitle.orEmpty()}".trim())
-                            }
+                                modifier = Modifier.focusRequester(primaryFocus),
+                            )
                         } else {
                             val first = d.seasons.values.firstOrNull()?.firstOrNull()
                             if (first != null) {
-                                Button(
+                                WhiteButton(
+                                    text = "Play S${first.season} E${first.number}",
+                                    icon = Icons.Default.PlayArrow,
                                     onClick = { Playback.start(context, vm.entryFor(d, first, null)) },
-                                    modifier = Modifier.focusRequester(primaryFocus).focusHighlight(),
-                                ) {
-                                    Icon(Icons.Default.PlayArrow, contentDescription = null)
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Play S${first.season} E${first.number}")
-                                }
+                                    modifier = Modifier.focusRequester(primaryFocus),
+                                )
                             }
-                        }
-                        OutlinedButton(onClick = { vm.toggleFavorite(d) }, modifier = Modifier.focusHighlight()) {
-                            Icon(
-                                if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                contentDescription = null,
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(if (isFavorite) "Favorited" else "Favorite")
                         }
                     }
                 }

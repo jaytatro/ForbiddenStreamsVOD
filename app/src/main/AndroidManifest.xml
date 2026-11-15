@@ -43,6 +43,14 @@
             android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.ForbiddenStreams.Player" />
 
+        <activity
+            android:name=".player.TrailerActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode"
+            android:exported="false"
+            android:hardwareAccelerated="true"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.ForbiddenStreams.Player" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
