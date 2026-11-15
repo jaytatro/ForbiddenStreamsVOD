@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -43,6 +44,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -110,6 +112,7 @@ fun LandingScreen(
                     BigPosterButton(
                         title = "Movies",
                         subtitle = "Films on demand",
+                        emoji = "\uD83C\uDFAC", // 🎬
                         titleColor = Brand.ToxicGreen,
                         glow = Brand.ToxicGreen,
                         modifier = Modifier
@@ -121,6 +124,7 @@ fun LandingScreen(
                     BigPosterButton(
                         title = "TV Series",
                         subtitle = "Every season, every episode",
+                        emoji = "\uD83D\uDCFA", // 📺
                         titleColor = Brand.Bone,
                         glow = Brand.GlowGreen,
                         modifier = Modifier
@@ -177,6 +181,7 @@ private fun TopRow(updateAvailable: Boolean, onMyList: () -> Unit, onSettings: (
 private fun BigPosterButton(
     title: String,
     subtitle: String,
+    emoji: String,
     titleColor: Color,
     glow: Color,
     modifier: Modifier = Modifier,
@@ -190,30 +195,53 @@ private fun BigPosterButton(
         elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
         modifier = modifier.focusHighlight(shape),
     ) {
-        Box(Modifier.fillMaxSize()) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val density = LocalDensity.current
+            // Ring geometry, shared by the emoji and the ring so the emoji sits inside the circle.
+            val ringCenterY = maxHeight * 0.46f
+            val emojiSize = with(density) { (minOf(maxWidth, maxHeight) * 0.40f).toSp() }
+
+            // 1. Screen glow + scanlines
             Canvas(Modifier.fillMaxSize()) {
-                // Screen glow
                 drawRect(
                     Brush.verticalGradient(
                         listOf(glow.copy(alpha = 0.28f), Brand.Screen, Brand.Background),
                     ),
                 )
-                // Scanlines
                 val step = 6.dp.toPx()
                 var y = 0f
                 while (y < size.height) {
                     drawLine(Color.White.copy(alpha = 0.035f), Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
                     y += step
                 }
-                // Prohibition ring
+            }
+
+            // 2. The emoji, behind the ring
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(ringCenterY * 2),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    emoji,
+                    fontSize = emojiSize,
+                    lineHeight = emojiSize,
+                    modifier = Modifier.alpha(0.92f),
+                )
+            }
+
+            // 3. Red prohibition ring on top
+            Canvas(Modifier.fillMaxSize()) {
                 val r = size.minDimension * 0.36f
                 val c = Offset(size.width / 2, size.height * 0.46f)
                 val stroke = size.minDimension * 0.06f
-                val red = Brand.ForbiddenRed.copy(alpha = 0.75f)
+                val red = Brand.ForbiddenRed.copy(alpha = 0.85f)
                 drawCircle(red, radius = r, center = c, style = Stroke(width = stroke))
                 val d = r / sqrt(2f)
                 drawLine(red, Offset(c.x - d, c.y - d), Offset(c.x + d, c.y + d), strokeWidth = stroke, cap = StrokeCap.Butt)
             }
+
             Column(
                 Modifier
                     .align(Alignment.BottomCenter)
